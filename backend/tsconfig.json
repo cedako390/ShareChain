@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
+    "baseUrl": "./src",
+    "paths": {
+      "@core/*": ["core/*"],
+      "@db/*": ["db/*"],
+      "@http/*": ["http/*"],
+      "@lib/*": ["lib/*"]
+    },
+    "target": "es2020",
+    "module": "esnext",
+    "moduleResolution": "node",
+    "lib": ["esnext"]
+  }
+}

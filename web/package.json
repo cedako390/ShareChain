@@ -1,0 +1,53 @@
+{
+  "name": "web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 3000",
+    "start": "vite --port 3000",
+    "build": "vite build && tsc",
+    "serve": "vite preview",
+    "test": "vitest run",
+    "format": "biome format",
+    "lint": "biome lint",
+    "check": "biome check"
+  },
+  "dependencies": {
+    "@heroicons/react": "^2.2.0",
+    "@mantine/core": "^7.17.5",
+    "@mantine/dates": "^7.17.5",
+    "@mantine/dropzone": "^7.17.5",
+    "@mantine/hooks": "^7.17.5",
+    "@mantine/modals": "^7.17.5",
+    "@mantine/notifications": "^7.17.5",
+    "@mantine/spotlight": "^7.17.5",
+    "@mantine/tiptap": "^7.17.5",
+    "@tanstack/react-router": "^1.114.3",
+    "@tanstack/react-router-devtools": "^1.114.3",
+    "@tanstack/router-plugin": "^1.114.3",
+    "@tiptap/extension-link": "^2.11.7",
+    "@tiptap/pm": "^2.11.7",
+    "@tiptap/react": "^2.11.7",
+    "@tiptap/starter-kit": "^2.11.7",
+    "dayjs": "^1.11.13",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.2.0",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^26.0.0",
+    "postcss": "^8.5.3",
+    "postcss-preset-mantine": "^1.17.0",
+    "postcss-simple-vars": "^7.0.1",
+    "sass": "^1.87.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.1.0",
+    "vitest": "^3.0.5",
+    "web-vitals": "^4.2.4"
+  }
+}
