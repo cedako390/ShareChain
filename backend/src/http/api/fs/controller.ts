@@ -1,6 +1,6 @@
 import {Context} from "hono";
 import {respond} from "@lib/respond";
-import {createEntry, getByPath, getFileByPath, getRoot} from "./service";
+import {createEntry, createEntryWithUpload, getByPath, getFileByPath, getRoot} from "./service";
 import {BadRequestError} from "@core/erorrs";
 import {CreateEntrySchema} from "@http/api/fs/schema";
 
@@ -40,3 +40,13 @@ export const createEntryController = async (c: Context) => {
 
   return respond(c, createdEntry);
 };
+
+export const createFileEntryController = async (c: Context) => {
+  const payload = await c.get("jwtPayload")
+  const body = await c.req.json()
+  const parsed = CreateEntrySchema.safeParse(body)
+  if (!parsed.success) throw new BadRequestError()
+
+  const result = await createEntryWithUpload(parsed.data, payload.sub)
+  return respond(c, result)
+}

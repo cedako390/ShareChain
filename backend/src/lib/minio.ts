@@ -1,5 +1,6 @@
 import {db} from "@db/db";
 import {sql} from "drizzle-orm";
+import {minioClient} from "@db/minio";
 
 export async function getPathByID(id: number): Promise<string> {
   try {
@@ -24,4 +25,13 @@ export async function getPathByID(id: number): Promise<string> {
     console.error(e);
     return "/"
   }
+}
+
+export function generateDownloadUrl(bucket: string, objectKey: string, expires = 300) {
+  return new Promise<string>((resolve, reject) => {
+    minioClient.presignedGetObject(bucket, objectKey, expires, (err, url) => {
+      if (err) return reject(err);
+      resolve(url);
+    });
+  });
 }
