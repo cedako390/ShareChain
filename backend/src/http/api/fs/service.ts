@@ -128,7 +128,6 @@ export async function createEntryWithUpload(data: any, user_id: number) {
   return {
     entryId: inserted.id,
     fullPath,
-    fullPath,
     presignedUrl,
   }
 }

@@ -1,5 +1,5 @@
-import { Header } from "@/componets/Header/Header.tsx";
-import { NavbarButton } from "@/componets/NavbarButton/NavbarButton.tsx";
+import { Header } from "@/components/Header/Header.tsx";
+import { NavbarButton } from "@/components/NavbarButton/NavbarButton.tsx";
 import {
 	HomeIcon,
 	MagnifyingGlassIcon,

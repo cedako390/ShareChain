@@ -1,0 +1,25 @@
+### AUTH
+
+POST http://localhost:5000/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "root",
+  "password": "superSecretPassword123$"
+}
+
+
+
+### Create new entry
+POST http://localhost:5000/api/fs
+Content-Type: application/json
+
+{
+  "name": "main.docx",
+  "full_path": "foo/main.docx",
+  "is_folder": false,
+  "parent_id": 1
+}
+
+### Get all entry
+GET http://localhost:5000/api/fs
