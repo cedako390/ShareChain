@@ -1,0 +1,17 @@
+/* src/page/dashboard/index.module.css */
+.container {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.mainContent {
+    flex: 1;
+    padding: 2rem;
+    overflow-y: auto;
+}
+
+.breadcrumb {
+    width: 100%;
+
+}

@@ -1,0 +1,32 @@
+.user {
+    width: 100%;
+    padding: 8px !important;
+    border-radius: 8px;
+    transition: background-color 0.2s ease;
+    background-color: transparent;
+    color: #E0FBFC;
+}
+
+.user:hover {
+    background-color: #343C4B;
+}
+
+.userInfo {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    line-height: 1.2;
+}
+
+.name {
+    width: 120px;
+    color: #E0FBFC !important;
+
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.email {
+    color: #aab8c2 !important;
+}

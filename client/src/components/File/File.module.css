@@ -1,0 +1,41 @@
+/* File.module.css */
+.item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background-color: #293241;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.item:hover {
+    background-color: #343C4B;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.iconWrapper {
+    width: 32px;
+    height: 32px;
+    background-color: #EE6C4D;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon {
+    color: #E0FBFC;
+    width: 20px;
+    height: 20px;
+}
+
+.name {
+    font-size: 16px;
+    font-weight: 500;
+    color: #E0FBFC;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

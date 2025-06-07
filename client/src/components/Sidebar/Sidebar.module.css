@@ -1,0 +1,177 @@
+/* src/components/Sidebar/Sidebar.module.css */
+
+.navbar {
+    width: 260px;
+    height: 100vh;
+    padding: 1rem;
+    background-color: #1F2937;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    color: #E5E7EB;
+    font-family: 'Inter', sans-serif;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 1rem;
+}
+
+.logoText {
+    color: #FFC947;
+    font-weight: 700;
+    font-size: 1.25rem;
+    line-height: 1;
+}
+
+.fakeSearch {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background-color: #374151;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    margin-bottom: 1rem;
+}
+
+.fakeSearch:hover {
+    background-color: #4B5563;
+}
+
+.searchText {
+    color: #9CA3AF;
+    font-size: 0.875rem;
+}
+
+.section {
+    margin-top: 1rem;
+}
+
+.sectionTitle {
+    font-size: 0.75rem;
+    color: #9CA3AF;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+    padding-left: 0.25rem;
+    letter-spacing: 0.5px;
+}
+
+/* ===== Основные ссылки ===== */
+.mainLinks,
+.pinnedList {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.mainLink {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background-color: transparent;
+    padding: 4px 8px !important;
+    border-radius: 4px;
+    transition: background-color 0.15s;
+}
+
+.mainLink:hover {
+    background-color: #374151;
+}
+
+.mainLinkInner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mainLinkIcon {
+    color: #9CA3AF;
+    transition: color 0.15s;
+}
+
+.mainLink:hover .mainLinkIcon {
+    color: #FFC947;
+}
+
+.linkText {
+    font-size: 0.9rem;
+    color: #E5E7EB;
+}
+
+.mainLinkBadge {
+    background-color: #DC2626;
+    color: #E5E7EB;
+    font-size: 0.65rem;
+}
+
+/* ===== Закреплённые папки ===== */
+.pinnedItem {
+    display: flex;
+    align-items: center;
+    background-color: transparent;
+    padding: 4px 8px !important;
+    border-radius: 4px;
+    transition: background-color 0.15s;
+}
+
+.pinnedItem:hover {
+    background-color: #4B5563;
+}
+
+.pinnedInner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pinnedIcon {
+    color: #9CA3AF;
+    transition: color 0.15s;
+}
+
+.pinnedItem:hover .pinnedIcon {
+    color: #FFC947;
+}
+
+.pinnedLabel {
+    font-size: 0.9rem;
+    color: #E5E7EB;
+}
+
+/* ===== Spacer ===== */
+.spacer {
+    flex-grow: 1;
+}
+
+/* ===== Footer ===== */
+.footer {
+    padding-top: 1rem;
+    border-top: 1px solid #374151;
+}
+
+.logout {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    /*justify-content: center;*/
+    margin-top: 0.75rem;
+    background-color: #DC2626;
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem !important;
+    transition: background-color 0.15s;
+}
+
+.logout:hover {
+    background-color: #B91C1C;
+}
+
+.logoutText {
+    color: #F3F4F6;
+    font-size: 0.95rem;
+    font-weight: 500;
+}

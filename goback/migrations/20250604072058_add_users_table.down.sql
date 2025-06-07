@@ -1,0 +1,5 @@
+DROP TABLE IF EXISTS pinned_folders;
+DROP TABLE IF EXISTS files;
+DROP TABLE IF EXISTS folder_whitelist;
+DROP TABLE IF EXISTS folders;
+DROP TABLE IF EXISTS users;

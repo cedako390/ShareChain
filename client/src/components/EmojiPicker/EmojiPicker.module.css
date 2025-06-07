@@ -1,0 +1,58 @@
+/* EmojiPicker.module.css */
+.wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.trigger {
+    width: 40px;
+    height: 40px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.trigger:hover {
+    border-color: #888;
+}
+
+.popup {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    width: 360px;
+    max-height: 290px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+}
+
+.emojiGrid {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.emojiItem {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 4px;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    border-radius: 4px;
+}
+
+.emojiItem:hover {
+    background: #f0f0f0;
+    transform: scale(1.1);
+}

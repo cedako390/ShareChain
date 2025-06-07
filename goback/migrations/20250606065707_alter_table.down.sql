@@ -1,0 +1,2 @@
+ALTER TABLE files
+    ALTER COLUMN folder_id SET NOT NULL;

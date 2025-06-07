@@ -1,0 +1,1199 @@
+Project Path: src
+
+Source Tree:
+
+```txt
+src
+├── components
+│   ├── Dolphin
+│   │   ├── Dolphin.jsx
+│   │   └── Dolphin.module.css
+│   ├── EmojiPicker
+│   │   ├── EmojiPicker.jsx
+│   │   └── EmojiPicker.module.css
+│   ├── File
+│   │   ├── File.jsx
+│   │   └── File.module.css
+│   ├── Folder
+│   │   ├── Folder.jsx
+│   │   └── Folder.module.css
+│   ├── ProtectedRoute.jsx
+│   ├── Sidebar
+│   │   ├── Sidebar.jsx
+│   │   └── Sidebar.module.css
+│   └── UserButton
+│       ├── UserButton.jsx
+│       └── UserButton.module.css
+├── context
+│   └── AuthContext.jsx
+├── index.css
+├── layout
+│   ├── DashboardLayout.jsx
+│   ├── DashboardLayout.module.css
+│   └── RootLayout.jsx
+├── main.jsx
+├── page
+│   ├── auth
+│   │   ├── index.jsx
+│   │   └── index.module.css
+│   └── index.js
+└── postcss.config.cjs
+
+```
+
+`src/components/Dolphin/Dolphin.jsx`:
+
+```jsx
+import styles from './Dolphin.module.css'
+import {useEffect, useState} from "react";
+import axios from "axios";
+import {Folder} from "../Folder/Folder.jsx";
+import {File} from "../File/File.jsx";
+
+export function Dolphin() {
+    const [parentId, setParentId] = useState(null);
+    const [folders, setFolders] = useState([]);
+
+    useEffect(() => {
+        axios.get(`/api/personal/folders?parent_id=${parentId}`).then((res) => {
+            setFolders(res.data);
+        })
+    }, [])
+
+    return (
+        <div className={styles.wrapper}>
+            {
+                folders.map((folder, index) => {
+                    return (
+                        <Folder folder={folder} key={index}/>
+                    )
+                })
+            }
+            <File file={{ Name: "photo.jpg" }} />
+            <File file={{ Name: "document.pdf" }} />
+            <File file={{ Name: "table.xlsx" }} />
+            <File file={{ Name: "music.mp3" }} />
+            <File file={{ Name: "video.mp4" }} />
+            <File file={{ Name: "archive.zip" }} />
+            <File file={{ Name: "report.docx" }} />
+            <File file={{ Name: "notes.txt" }} />
+            <File file={{ Name: "presentation.pptx" }} />
+            <File file={{ Name: "unknownfile.xyz" }} />
+
+        </div>
+    )
+}
+```
+
+`src/components/Dolphin/Dolphin.module.css`:
+
+```css
+.wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+```
+
+`src/components/EmojiPicker/EmojiPicker.jsx`:
+
+```jsx
+// EmojiPicker.jsx
+import React, { useState, useRef, useEffect } from "react";
+import { Emoji } from "react-apple-emojis";
+import emojiData from "../../filtered.json";
+import styles from "./EmojiPicker.module.css";
+
+export function EmojiPicker() {
+    const [selected, setSelected] = useState(null);
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+
+    useEffect(() => {
+        function handleClickOutside(e) {
+            if (ref.current && !ref.current.contains(e.target)) {
+                setOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    return (
+        <div className={styles.wrapper} ref={ref}>
+            {/* Триггер */}
+            <div
+                className={styles.trigger}
+                onClick={() => setOpen(prev => !prev)}
+            >
+                {selected ? (
+                    <Emoji name={selected} width={24} />
+                ) : (
+                    <Emoji name="laptop" width={24} />
+                )}
+            </div>
+
+            {/* Попап со списком эмодзи */}
+            {open && (
+                <div className={styles.popup}>
+                    <div className={styles.emojiGrid}>
+                        {Object.keys(emojiData).map((name) => (
+                            <div
+                                key={name}
+                                className={styles.emojiItem}
+                                onClick={() => {
+                                    setSelected(name);
+                                    setOpen(false);
+                                }}
+                            >
+                                <Emoji name={name} width={24} />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+```
+
+`src/components/EmojiPicker/EmojiPicker.module.css`:
+
+```css
+/* EmojiPicker.module.css */
+.wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.trigger {
+    width: 40px;
+    height: 40px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.trigger:hover {
+    border-color: #888;
+}
+
+.popup {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    width: 360px;
+    max-height: 290px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+}
+
+.emojiGrid {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.emojiItem {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 4px;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    border-radius: 4px;
+}
+
+.emojiItem:hover {
+    background: #f0f0f0;
+    transform: scale(1.1);
+}
+
+```
+
+`src/components/File/File.jsx`:
+
+```jsx
+// File.jsx
+import React from 'react';
+import styles from './File.module.css';
+import {
+    IconFile,
+    IconPhoto,
+    IconFileTypePdf,
+    IconFileTypeXls,
+    IconHeadphones,
+    IconFileZip, IconMovie, IconFileWord, IconFileBroken,
+} from '@tabler/icons-react';
+
+export function File({ file }) {
+    // Получаем расширение (после последней точки), приводим к нижнему регистру
+    const ext = file.Name.split('.').pop().toLowerCase();
+
+    // Выбираем иконку по типу расширения
+    let ChosenIcon = IconFile;
+    if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'bmp', 'webp'].includes(ext)) {
+        ChosenIcon = IconPhoto;
+    } else if (['pdf'].includes(ext)) {
+        ChosenIcon = IconFileTypePdf;
+    } else if (['xls', 'xlsx', 'csv'].includes(ext)) {
+        ChosenIcon = IconFileTypeXls;
+    } else if (['mp3', 'wav', 'ogg', 'flac'].includes(ext)) {
+        ChosenIcon = IconHeadphones;
+    } else if (['mp4', 'mkv', 'avi', 'mov', 'webm'].includes(ext)) {
+        ChosenIcon = IconMovie;
+    } else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
+        ChosenIcon = IconFileZip;
+    } else if (['doc', 'docx', 'rtf', 'odt', 'docm', 'dotx'].includes(ext)) {
+        ChosenIcon = IconFileWord;
+    } else if ([].includes(ext)) {
+        ChosenIcon = IconFileBroken;
+    }
+
+    return (
+        <div className={styles.item}>
+            <div className={styles.iconWrapper}>
+                <ChosenIcon className={styles.icon} />
+            </div>
+            <span className={styles.name}>{file.Name}</span>
+        </div>
+    );
+}
+
+```
+
+`src/components/File/File.module.css`:
+
+```css
+/* File.module.css */
+.item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background-color: #293241;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.item:hover {
+    background-color: #343C4B;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.iconWrapper {
+    width: 32px;
+    height: 32px;
+    background-color: #EE6C4D;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon {
+    color: #E0FBFC;
+    width: 20px;
+    height: 20px;
+}
+
+.name {
+    font-size: 16px;
+    font-weight: 500;
+    color: #E0FBFC;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+```
+
+`src/components/Folder/Folder.jsx`:
+
+```jsx
+// Folder.jsx
+import React from 'react';
+import styles from './Folder.module.css';
+import { IconFolder } from '@tabler/icons-react';
+
+export function Folder({ folder }) {
+    return (
+        <div className={styles.item}>
+            <div className={styles.iconWrapper}>
+                <IconFolder className={styles.icon} />
+            </div>
+            <span className={styles.name}>{folder.Name}</span>
+        </div>
+    );
+}
+
+```
+
+`src/components/Folder/Folder.module.css`:
+
+```css
+/* Folder.module.css */
+.item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background-color: #293241;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.item:hover {
+    background-color: #343C4B;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.iconWrapper {
+    width: 32px;
+    height: 32px;
+    background-color: #EE6C4D;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon {
+    color: #E0FBFC;
+    width: 20px;
+    height: 20px;
+}
+
+.name {
+    font-size: 16px;
+    font-weight: 500;
+    color: #E0FBFC;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+```
+
+`src/components/ProtectedRoute.jsx`:
+
+```jsx
+// src/components/ProtectedRoute.jsx
+import React from 'react';
+import { Navigate, Outlet } from 'react-router';
+import { useAuth } from '../context/AuthContext';
+
+export default function ProtectedRoute() {
+    const { isAuthenticated } = useAuth();
+
+    // Если не аутентифицирован — редиректим на /login
+    if (!isAuthenticated) {
+        return <Navigate to="/login" replace />;
+    }
+
+    // Иначе рендерим «вложенные» маршруты (Outlet)
+    return <Outlet />;
+}
+
+```
+
+`src/components/Sidebar/Sidebar.jsx`:
+
+```jsx
+// src/components/Sidebar/Sidebar.jsx
+import React from 'react';
+import {
+    IconCategory,
+    IconDeviceGamepad3,
+    IconLogout,
+    IconSearch,
+    IconSmartHome
+} from '@tabler/icons-react';
+import { Badge, UnstyledButton } from '@mantine/core';
+import classes from './Sidebar.module.css';
+import { UserButton } from "../UserButton/UserButton.jsx";
+import { Spotlight, spotlight } from '@mantine/spotlight';
+import { IconHome, IconDashboard, IconFileText } from '@tabler/icons-react';
+import { useAuth } from "../../context/AuthContext.jsx";
+import {Emoji} from "react-apple-emojis";
+import {EmojiPicker} from "../EmojiPicker/EmojiPicker.jsx";
+
+// Основные ссылки
+const links = [
+    { icon: IconSmartHome, label: 'Личный диск' },
+    { icon: IconCategory, label: 'Общий диск' },
+];
+
+// Закреплённые папки (переименовали из `collections`)
+const pinnedFolders = [
+    { icon: IconSmartHome, label: 'Sales' },
+    { icon: IconSmartHome, label: 'Marketing' },
+    { icon: IconSmartHome, label: 'Finance' },
+    { icon: IconSmartHome, label: 'HR' },
+];
+
+const actions = [
+    {
+        id: 'home',
+        label: 'Home',
+        description: 'Перейти на главную страницу',
+        onClick: () => console.log('Home'),
+        leftSection: <IconHome size={20} stroke={1.5} />,
+    },
+    {
+        id: 'dashboard',
+        label: 'Dashboard',
+        description: 'Обзор состояния системы',
+        onClick: () => console.log('Dashboard'),
+        leftSection: <IconDashboard size={20} stroke={1.5} />,
+    },
+    {
+        id: 'documentation',
+        label: 'Documentation',
+        description: 'Перейти к документации',
+        onClick: () => console.log('Documentation'),
+        leftSection: <IconFileText size={20} stroke={1.5} />,
+    },
+];
+
+export function Sidebar() {
+    const { logout } = useAuth();
+
+    // Рендерим основные ссылки
+    const mainLinks = links.map((link) => (
+        <UnstyledButton key={link.label} className={classes.mainLink}>
+            <div className={classes.mainLinkInner}>
+                <link.icon size={20} className={classes.mainLinkIcon} stroke={1.5} />
+                <span className={classes.linkText}>{link.label}</span>
+            </div>
+            {link.notifications && (
+                <Badge size="xs" variant="filled" className={classes.mainLinkBadge}>
+                    {link.notifications}
+                </Badge>
+            )}
+        </UnstyledButton>
+    ));
+
+    return (
+        <nav className={classes.navbar}>
+            {/* Логотип */}
+            <div className={classes.logo}>
+                <IconDeviceGamepad3 size={28} stroke={1.5} />
+                <span className={classes.logoText}>ShareChain</span>
+            </div>
+
+            {/* Поиск-спотлайт */}
+            <div onClick={spotlight.open} className={classes.fakeSearch}>
+                <IconSearch size={16} stroke={1.5} />
+                <span className={classes.searchText}>Поиск...</span>
+            </div>
+            <Spotlight
+                actions={actions}
+                nothingFound="Ничего не найдено"
+                highlightQuery
+                searchProps={{
+                    leftSection: <IconSearch size={18} stroke={1.5} />,
+                    placeholder: 'Поиск...',
+                }}
+            />
+
+            {/* ======== Основные разделы ======== */}
+            <div className={classes.section}>
+                <div className={classes.sectionTitle}>Основные разделы</div>
+                <div className={classes.mainLinks}>{mainLinks}</div>
+            </div>
+            {/* ======== Закреплённые папки ======== */}
+            <div className={classes.section}>
+                <div className={classes.sectionTitle}>Закреплённые папки</div>
+                <div className={classes.pinnedList}>
+                    {pinnedFolders.map((folder) => (
+                        <UnstyledButton key={folder.label} className={classes.pinnedItem}>
+                            <div className={classes.pinnedInner}>
+                                <Emoji name={"laptop"} width={18}/>
+                                <span className={classes.pinnedLabel}>{folder.label}</span>
+                            </div>
+                        </UnstyledButton>
+                    ))}
+                </div>
+            </div>
+
+            {/* Отталкиваем всё вниз */}
+            <div className={classes.spacer} />
+
+            {/* Footer: профиль + выход */}
+            <div className={classes.footer}>
+                <UserButton />
+                <UnstyledButton onClick={logout} className={classes.logout}>
+                    <IconLogout size={20} stroke={1.5} />
+                    <span className={classes.logoutText}>Выйти</span>
+                </UnstyledButton>
+            </div>
+        </nav>
+    );
+}
+
+```
+
+`src/components/Sidebar/Sidebar.module.css`:
+
+```css
+/* src/components/Sidebar/Sidebar.module.css */
+
+.navbar {
+    width: 260px;
+    height: 100vh;
+    padding: 1rem;
+    background-color: #1F2937;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    color: #E5E7EB;
+    font-family: 'Inter', sans-serif;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 1rem;
+}
+
+.logoText {
+    color: #FFC947;
+    font-weight: 700;
+    font-size: 1.25rem;
+    line-height: 1;
+}
+
+.fakeSearch {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background-color: #374151;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    margin-bottom: 1rem;
+}
+
+.fakeSearch:hover {
+    background-color: #4B5563;
+}
+
+.searchText {
+    color: #9CA3AF;
+    font-size: 0.875rem;
+}
+
+.section {
+    margin-top: 1rem;
+}
+
+.sectionTitle {
+    font-size: 0.75rem;
+    color: #9CA3AF;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+    padding-left: 0.25rem;
+    letter-spacing: 0.5px;
+}
+
+/* ===== Основные ссылки ===== */
+.mainLinks,
+.pinnedList {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.mainLink {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background-color: transparent;
+    padding: 4px 8px !important;
+    border-radius: 4px;
+    transition: background-color 0.15s;
+}
+
+.mainLink:hover {
+    background-color: #374151;
+}
+
+.mainLinkInner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mainLinkIcon {
+    color: #9CA3AF;
+    transition: color 0.15s;
+}
+
+.mainLink:hover .mainLinkIcon {
+    color: #FFC947;
+}
+
+.linkText {
+    font-size: 0.9rem;
+    color: #E5E7EB;
+}
+
+.mainLinkBadge {
+    background-color: #DC2626;
+    color: #E5E7EB;
+    font-size: 0.65rem;
+}
+
+/* ===== Закреплённые папки ===== */
+.pinnedItem {
+    display: flex;
+    align-items: center;
+    background-color: transparent;
+    padding: 4px 8px !important;
+    border-radius: 4px;
+    transition: background-color 0.15s;
+}
+
+.pinnedItem:hover {
+    background-color: #4B5563;
+}
+
+.pinnedInner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pinnedIcon {
+    color: #9CA3AF;
+    transition: color 0.15s;
+}
+
+.pinnedItem:hover .pinnedIcon {
+    color: #FFC947;
+}
+
+.pinnedLabel {
+    font-size: 0.9rem;
+    color: #E5E7EB;
+}
+
+/* ===== Spacer ===== */
+.spacer {
+    flex-grow: 1;
+}
+
+/* ===== Footer ===== */
+.footer {
+    padding-top: 1rem;
+    border-top: 1px solid #374151;
+}
+
+.logout {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    /*justify-content: center;*/
+    margin-top: 0.75rem;
+    background-color: #DC2626;
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem !important;
+    transition: background-color 0.15s;
+}
+
+.logout:hover {
+    background-color: #B91C1C;
+}
+
+.logoutText {
+    color: #F3F4F6;
+    font-size: 0.95rem;
+    font-weight: 500;
+}
+
+```
+
+`src/components/UserButton/UserButton.jsx`:
+
+```jsx
+import { IconChevronRight } from '@tabler/icons-react';
+import { Avatar, Group, Text, UnstyledButton } from '@mantine/core';
+import classes from './UserButton.module.css';
+import {useAuth} from "../../context/AuthContext.jsx";
+
+export function UserButton() {
+    const { user} = useAuth();
+    return (
+        <UnstyledButton className={classes.user}>
+            <Group gap="sm" justify="space-between">
+                <Group gap="sm">
+                    <Avatar
+                        src="https://raw.githubusercontent.com/mantinedev/mantine/master/.demo/avatars/avatar-4.png"
+                        radius="xl"
+                        size="md"
+                    />
+                    <div className={classes.userInfo}>
+                        <Text size="sm" className={classes.name}>
+                            {user.name}
+                        </Text>
+                        <Text c="dimmed" size="xs" className={classes.email}>
+                            @{user.username}
+                        </Text>
+                    </div>
+                </Group>
+                <IconChevronRight size={16} stroke={1.5} />
+            </Group>
+        </UnstyledButton>
+    );
+}
+
+```
+
+`src/components/UserButton/UserButton.module.css`:
+
+```css
+.user {
+    width: 100%;
+    padding: 8px !important;
+    border-radius: 8px;
+    transition: background-color 0.2s ease;
+    background-color: transparent;
+    color: #E0FBFC;
+}
+
+.user:hover {
+    background-color: #343C4B;
+}
+
+.userInfo {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    line-height: 1.2;
+}
+
+.name {
+    width: 120px;
+    color: #E0FBFC !important;
+
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.email {
+    color: #aab8c2 !important;
+}
+
+```
+
+`src/context/AuthContext.jsx`:
+
+```jsx
+// src/context/AuthContext.jsx
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useNavigate } from 'react-router';
+import axios from 'axios';
+
+// Создаём контекст
+const AuthContext = createContext(null);
+
+// Хук‐обёртка для удобного доступа
+export function useAuth() {
+    return useContext(AuthContext);
+}
+
+export function AuthProvider({ children }) {
+    const navigate = useNavigate();
+    const [token, setToken] = useState(null);
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    // При монтировании проверим localStorage и, если есть токен, сразу запрашиваем /me
+    useEffect(() => {
+        const savedToken = localStorage.getItem('jwt_token');
+        if (savedToken) {
+            setToken(savedToken);
+            axios
+                .get('/me', {
+                    headers: { Authorization: `Bearer ${savedToken}` },
+                })
+                .then((res) => {
+                    setUser(res.data);
+                })
+                .catch(() => {
+                    // Если /me вернул ошибку (например, токен просрочен), сбрасываем
+                    localStorage.removeItem('jwt_token');
+                    setToken(null);
+                    setUser(null);
+                })
+                .finally(() => {
+                    setLoading(false);
+                });
+        } else {
+            setLoading(false);
+        }
+    }, []);
+
+    // Функция логина: вызывает /login, получает JWT, сохраняет, а затем запрашивает /me
+    const login = async (username, password) => {
+        try {
+            const res = await axios.post(
+                '/login',
+                { username, password },
+                { headers: { 'Content-Type': 'application/json' } }
+            );
+            const data = res.data;
+            if (!data || !data.token) {
+                throw new Error('Не получили токен');
+            }
+
+            localStorage.setItem('jwt_token', data.token);
+            setToken(data.token);
+
+            // Запрашиваем /me для полной информации о пользователе
+            const meRes = await axios.get('/me', {
+                headers: { Authorization: `Bearer ${data.token}` },
+            });
+            setUser(meRes.data);
+
+            navigate('/');
+        } catch (err) {
+            throw new Error('invalid username or password');
+        }
+    };
+
+    // Функция разлогина
+    const logout = () => {
+        localStorage.removeItem('jwt_token');
+        setToken(null);
+        setUser(null);
+        navigate('/login');
+    };
+
+    const value = {
+        token,
+        user,
+        login,
+        logout,
+        isAuthenticated: !!token,
+    };
+
+    if (loading) {
+        return null;
+    }
+
+    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+```
+
+`src/index.css`:
+
+```css
+@import "tailwindcss";
+
+:root {
+
+}
+
+body {
+    font-family: "Inter", sans-serif;
+    background-color: #171C24;
+    color: #293241;
+}
+```
+
+`src/layout/DashboardLayout.jsx`:
+
+```jsx
+// src/page/dashboard/index.jsx
+import React from 'react';
+import {Box} from '@mantine/core';
+import classes from './DashboardLayout.module.css';
+import {Sidebar} from "../components/Sidebar/Sidebar.jsx";
+import {Outlet} from "react-router";
+
+export default function DashboardLayout() {
+
+    return (
+        <Box className={classes.container}>
+            <Sidebar/>
+
+            <Box className={classes.mainContent}>
+                <Outlet/>
+            </Box>
+        </Box>
+    );
+}
+
+```
+
+`src/layout/DashboardLayout.module.css`:
+
+```css
+/* src/page/dashboard/index.module.css */
+.container {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.mainContent {
+    flex: 1;
+    padding: 2rem;
+    overflow-y: auto;
+}
+
+```
+
+`src/layout/RootLayout.jsx`:
+
+```jsx
+// src/layouts/RootLayout.jsx
+import React from "react";
+import { Outlet } from "react-router";
+import { AuthProvider } from "../context/AuthContext";
+
+export default function RootLayout() {
+    return (
+        <AuthProvider>
+            <Outlet />
+        </AuthProvider>
+    );
+}
+
+```
+
+`src/main.jsx`:
+
+```jsx
+// src/main.jsx
+import React from "react";
+import ReactDOM from "react-dom/client";
+
+import {BrowserRouter, Routes, Route, Navigate, createBrowserRouter, RouterProvider} from "react-router"
+
+import {AuthProvider} from "./context/AuthContext";
+import ProtectedRoute from "./components/ProtectedRoute";
+
+import {AuthPage} from "./page/index.js";
+
+import {createTheme, MantineProvider} from "@mantine/core";
+import "@mantine/core/styles.css";
+import '@mantine/spotlight/styles.css';
+import "./index.css";
+import axios from "axios";
+import {EmojiProvider} from "react-apple-emojis";
+import emojiData from "./filtered.json"
+import RootLayout from "./layout/RootLayout.jsx";
+import DashboardLayout from "./layout/DashboardLayout.jsx";
+import {Dolphin} from "./components/Dolphin/Dolphin.jsx";
+
+const theme = createTheme({
+    fontFamily: "Inter, sans-serif",
+});
+
+axios.defaults.baseURL = 'http://localhost:4000';
+axios.interceptors.request.use(
+    config => {
+        const token = localStorage.getItem('jwt_token');
+        if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+        }
+        return config;
+    },
+    error => Promise.reject(error)
+);
+
+const root = document.getElementById("root");
+
+
+export const router = createBrowserRouter([
+    {
+        path: '/',
+        element: <RootLayout />,
+        children: [
+            { path: 'login', element: <AuthPage /> },
+
+            {
+                element: <ProtectedRoute />,
+                children: [
+                    {
+                        path: '/',
+                        element: <DashboardLayout />,
+                        children: [
+                            { index: true, element: <div><Dolphin/></div> },
+                            { path: 'private-example', element:  <div>privat</div> },
+                        ],
+                    },
+                ],
+            },
+
+            { path: '*', element: <Navigate to='/' replace /> },
+        ],
+    },
+]);
+
+ReactDOM.createRoot(root).render(
+    <MantineProvider theme={theme}>
+        <EmojiProvider data={emojiData}>
+            <RouterProvider router={router}/>
+        </EmojiProvider>
+    </MantineProvider>
+);
+
+```
+
+`src/page/auth/index.jsx`:
+
+```jsx
+// src/page/auth/index.jsx
+import React, { useState } from 'react';
+import {
+    Button,
+    Paper,
+    PasswordInput,
+    Text,
+    TextInput,
+    Title,
+    Alert,
+} from '@mantine/core';
+import classes from './index.module.css';
+import { useAuth } from '../../context/AuthContext';
+
+export default function AuthPage() {
+    const { login } = useAuth();
+
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+
+        if (!username || !password) {
+            setError('Пожалуйста, введите и логин, и пароль.');
+            return;
+        }
+
+        try {
+            await login(username, password);
+            // Если login успешен, navigate уже вызван внутри login()
+        } catch (err) {
+            setError('Неправильные логин или пароль.');
+        }
+    };
+
+    return (
+        <div className={classes.wrapper}>
+            <Paper className={classes.form} radius={0} padding="xl">
+                <Title order={2} className={classes.title}>
+                    Welcome back to ShareChain!
+                </Title>
+
+                {error && (
+                    <Alert color="red" mb="md">
+                        {error}
+                    </Alert>
+                )}
+
+                <form onSubmit={handleSubmit}>
+                    <TextInput
+                        label="Введите username"
+                        placeholder="admin"
+                        size="md"
+                        radius="md"
+                        value={username}
+                        onChange={(e) => setUsername(e.currentTarget.value)}
+                    />
+                    <PasswordInput
+                        label="Введите пароль"
+                        placeholder="Твой пароль"
+                        mt="md"
+                        size="md"
+                        radius="md"
+                        value={password}
+                        onChange={(e) => setPassword(e.currentTarget.value)}
+                    />
+                    <Button fullWidth mt="xl" size="md" radius="md" type="submit">
+                        Войти
+                    </Button>
+                </form>
+            </Paper>
+        </div>
+    );
+}
+
+```
+
+`src/page/auth/index.module.css`:
+
+```css
+/* src/page/auth/index.module.css */
+.wrapper {
+    min-height: 100vh;
+    background-size: cover;
+    background-image: url(https://images.unsplash.com/photo-1484242857719-4b9144542727?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=1280&q=80);
+}
+
+.form {
+    border-right: 1px solid var(--mantine-color-gray-3);
+    min-height: 100vh;
+    max-width: 450px;
+    padding: 80px 30px 30px;
+    border-radius: 0;
+}
+
+.title {
+    font-weight: 600;
+    text-align: center;
+    margin-top: var(--mantine-spacing-md);
+    margin-bottom: 50px;
+}
+
+```
+
+`src/page/index.js`:
+
+```js
+// src/page/index.js
+export { default as AuthPage } from './auth/index.jsx';
+```
+
+`src/postcss.config.cjs`:
+
+```cjs
+module.exports = {
+    plugins: {
+        'postcss-preset-mantine': {},
+        'postcss-simple-vars': {
+            variables: {
+                'mantine-breakpoint-xs': '36em',
+                'mantine-breakpoint-sm': '48em',
+                'mantine-breakpoint-md': '62em',
+                'mantine-breakpoint-lg': '75em',
+                'mantine-breakpoint-xl': '88em',
+            },
+        },
+    },
+};
+```
