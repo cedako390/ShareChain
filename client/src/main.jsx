@@ -19,6 +19,7 @@ import emojiData from "./filtered.json"
 import RootLayout from "./layout/RootLayout.jsx";
 import DashboardLayout from "./layout/DashboardLayout.jsx";
 import {Dolphin} from "./components/Dolphin/Dolphin.jsx";
+import {useUrlStore} from "./store/url.js";
 
 const theme = createTheme({
     fontFamily: "Inter, sans-serif",
@@ -42,26 +43,33 @@ const root = document.getElementById("root");
 export const router = createBrowserRouter([
     {
         path: '/',
-        element: <RootLayout />,
+        element: <RootLayout/>,
         children: [
-            { path: 'login', element: <AuthPage /> },
+            {path: 'login', element: <AuthPage/>},
 
             {
-                element: <ProtectedRoute />,
+                element: <ProtectedRoute/>,
                 children: [
                     {
                         path: '/',
-                        element: <DashboardLayout />,
+                        element: <DashboardLayout/>,
                         children: [
-                            { index: true, element: <PersonalPage/> },
-                            { path: 'share', element: <SharePage /> },
-                            { path: 'private-example', element:  <div>privat</div> },
+                            {
+                                index: true,
+                                element: <PersonalPage/>,
+                                loader: () => {
+                                    // useUrlStore.getState().clear()
+                                    return null
+                                }
+                            },
+                            {path: 'share', element: <SharePage/>},
+                            {path: 'private-example', element: <div>privat</div>},
                         ],
                     },
                 ],
             },
 
-            { path: '*', element: <Navigate to='/' replace /> },
+            {path: '*', element: <Navigate to='/' replace/>},
         ],
     },
 ]);

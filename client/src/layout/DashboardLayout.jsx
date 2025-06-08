@@ -14,10 +14,23 @@ export default function DashboardLayout() {
 
             <Box className={styles.mainContent}>
                 <div className={styles.breadcrumb}>
-                    {a.map((item, index) => {
-                        return (<div>{item.name}</div>)
-                    })}
+                    {a.map((item, index) => (
+                        <React.Fragment key={item.id}>
+                            <div
+                                className={
+                                    index === a.length - 1
+                                        ? `${styles.item} ${styles.current}`
+                                        : styles.item
+                                }
+                            >
+                                {item.name}
+                            </div>
+
+                            {index < a.length - 1 && <div className={styles.separator}>/</div>}
+                        </React.Fragment>
+                    ))}
                 </div>
+
                 <Outlet/>
             </Box>
         </Box>

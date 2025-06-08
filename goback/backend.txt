@@ -1,0 +1,2015 @@
+Project Path: goback
+
+Source Tree:
+
+```txt
+goback
+├── Makefile
+├── cmd
+│   └── app
+│       └── main.go
+├── go.mod
+├── go.sum
+├── internal
+│   ├── config
+│   │   └── config.go
+│   ├── dto
+│   │   ├── file.go
+│   │   ├── folder.go
+│   │   ├── user.go
+│   │   └── whitelist.go
+│   ├── factory
+│   │   ├── factory.go
+│   │   └── minio.go
+│   ├── handler
+│   │   ├── auth.go
+│   │   ├── jwt_middleware.go
+│   │   ├── personal.go
+│   │   └── task.go
+│   ├── model
+│   │   ├── models.go
+│   │   └── task.go
+│   ├── repository
+│   │   ├── file.go
+│   │   ├── folder.go
+│   │   ├── pin.go
+│   │   ├── task.go
+│   │   └── user.go
+│   ├── router
+│   │   └── router.go
+│   └── service
+│       ├── auth.go
+│       ├── file.go
+│       ├── folder.go
+│       ├── pin.go
+│       └── task.go
+└── migrations
+    ├── 20250604072058_add_users_table.down.sql
+    ├── 20250604072058_add_users_table.up.sql
+    ├── 20250606065707_alter_table.down.sql
+    └── 20250606065707_alter_table.up.sql
+
+```
+
+`goback/Makefile`:
+
+```
+# Makefile
+# -----------------------
+# Переменные:
+#
+# DATABASE_URL: строка подключения к БД (Postgres)
+#   Пример: postgres://user:pass@localhost:5432/dbname?sslmode=disable
+#
+# MIGRATE: путь к бинарю migrate (если в PATH — оставьте пустым)
+#   Пример: /home/user/go/bin/migrate
+#
+# MIGRATIONS_DIR: папка с миграциями
+#   Обычно: migrations
+#
+# Чтобы создать новую миграцию, указывайте NAME, напр.:
+#   make create-migration NAME=add_users_table
+#
+# Чтобы сделать up/down:
+#   make migrate-up
+#   make migrate-down
+#
+# -----------------------
+
+DATABASE_URL ?= postgres://myuser:mypassword@localhost:5432/mydatabase?sslmode=disable
+MIGRATE      ?= migrate
+MIGRATIONS_DIR := migrations
+
+.PHONY: migrate-up migrate-down create-migration
+
+# Выполнить все миграции вперёд
+migrate-up:
+	@echo "==> apply up migrations"
+	$(MIGRATE) -path $(MIGRATIONS_DIR) -database "$(DATABASE_URL)" up
+
+# Откатить последнюю миграцию (или несколько через count=X: down X)
+migrate-down:
+	@echo "==> apply down (rollback)"
+	$(MIGRATE) -path $(MIGRATIONS_DIR) -database "$(DATABASE_URL)" down
+
+# Создать новую пару миграционных файлов: .up.sql и .down.sql
+# Пример: make create-migration NAME=create_orders_table
+create-migration:
+ifndef NAME
+	$(error NAME is not set. Usage: make create-migration NAME=<migration_name>)
+endif
+	@echo "==> creating new migration: $(NAME)"
+	$(MIGRATE) create -ext sql -dir $(MIGRATIONS_DIR) $(NAME)
+	@echo "Created files:"
+	@ls -1 $(MIGRATIONS_DIR)/*$(NAME)*.sql
+
+
+```
+
+`goback/cmd/app/main.go`:
+
+```go
+package main
+
+import (
+	"log"
+	"net/http"
+	"os"
+
+	_ "github.com/lib/pq"
+
+	"goback/internal/config"
+	"goback/internal/factory"
+	"goback/internal/handler"
+	"goback/internal/repository"
+	"goback/internal/router"
+	"goback/internal/service"
+)
+
+func main() {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatalf("cannot load config: %v", err)
+	}
+
+	db, err := factory.NewDatabase(cfg)
+	if err != nil {
+		log.Fatalf("cannot connect to db: %v", err)
+	}
+	defer db.Close()
+
+	minioClient := factory.NewMinioClient()
+
+	// создаём репозитории для личного пространства
+	folderRepo := repository.NewFolderRepository(db)
+	fileRepo := repository.NewFileRepository(db)
+	pinRepo := repository.NewPinRepository(db)
+
+	// создаём сервисы
+	folderSvc := service.NewFolderService(folderRepo)
+	fileSvc := service.NewFileService(fileRepo, minioClient, os.Getenv("MINIO_BUCKET"))
+	pinSvc := service.NewPinService(pinRepo)
+
+	// создаём personal-handler
+	personalHnd := handler.NewPersonalHandler(folderSvc, fileSvc, pinSvc)
+	taskRepo := factory.NewTaskRepository(db)
+	userRepo := repository.NewUserRepository(db)
+
+	taskSvc := factory.NewTaskService(taskRepo)
+	authSvc := service.NewAuthService(userRepo, cfg.JWTSecret)
+
+	taskHnd := factory.NewTaskHandler(taskSvc)
+	authHnd := handler.NewAuthHandler(authSvc, userRepo, cfg.JWTSecret)
+
+	// Роутинг с передачей jwtSecret для middleware
+	r := router.SetupRoutes(taskHnd, authHnd, personalHnd, cfg.JWTSecret)
+
+	port := cfg.Port
+	if port == "" {
+		port = "4000"
+	}
+
+	log.Printf("server listening on :%s", port)
+	if err := http.ListenAndServe(":"+port, r); err != nil {
+		log.Fatalf("server failed: %v", err)
+	}
+}
+
+```
+
+`goback/go.mod`:
+
+```mod
+module goback
+
+go 1.24.3
+
+require (
+	github.com/go-chi/chi/v5 v5.2.1
+	github.com/golang-jwt/jwt/v4 v4.5.2
+	github.com/jmoiron/sqlx v1.4.0
+	github.com/lib/pq v1.10.9
+	github.com/minio/minio-go/v7 v7.0.92
+	github.com/rs/cors v1.11.1
+	golang.org/x/crypto v0.38.0
+)
+
+require (
+	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/go-ini/ini v1.67.0 // indirect
+	github.com/goccy/go-json v0.10.5 // indirect
+	github.com/google/uuid v1.6.0 // indirect
+	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
+	github.com/minio/crc64nvme v1.0.1 // indirect
+	github.com/minio/md5-simd v1.1.2 // indirect
+	github.com/philhofer/fwd v1.1.3-0.20240916144458-20a13a1f6b7c // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/rs/xid v1.6.0 // indirect
+	github.com/tinylib/msgp v1.3.0 // indirect
+	golang.org/x/net v0.38.0 // indirect
+	golang.org/x/sys v0.33.0 // indirect
+	golang.org/x/text v0.25.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
+)
+
+```
+
+`goback/go.sum`:
+
+```sum
+filippo.io/edwards25519 v1.1.0 h1:FNf4tywRC1HmFuKW5xopWpigGjJKiJSV0Cqo0cJWDaA=
+filippo.io/edwards25519 v1.1.0/go.mod h1:BxyFTGdWcka3PhytdK4V28tE5sGfRvvvRV7EaN4VDT4=
+github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
+github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
+github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
+github.com/go-chi/chi/v5 v5.2.1 h1:KOIHODQj58PmL80G2Eak4WdvUzjSJSm0vG72crDCqb8=
+github.com/go-chi/chi/v5 v5.2.1/go.mod h1:L2yAIGWB3H+phAw1NxKwWM+7eUH/lU8pOMm5hHcoops=
+github.com/go-ini/ini v1.67.0 h1:z6ZrTEZqSWOTyH2FlglNbNgARyHG8oLW9gMELqKr06A=
+github.com/go-ini/ini v1.67.0/go.mod h1:ByCAeIL28uOIIG0E3PJtZPDL8WnHpFKFOtgjp+3Ies8=
+github.com/go-sql-driver/mysql v1.8.1 h1:LedoTUt/eveggdHS9qUFC1EFSa8bU2+1pZjSRpvNJ1Y=
+github.com/go-sql-driver/mysql v1.8.1/go.mod h1:wEBSXgmK//2ZFJyE+qWnIsVGmvmEKlqwuVSjsCm7DZg=
+github.com/goccy/go-json v0.10.5 h1:Fq85nIqj+gXn/S5ahsiTlK3TmC85qgirsdTP/+DeaC4=
+github.com/goccy/go-json v0.10.5/go.mod h1:oq7eo15ShAhp70Anwd5lgX2pLfOS3QCiwU/PULtXL6M=
+github.com/golang-jwt/jwt/v4 v4.5.2 h1:YtQM7lnr8iZ+j5q71MGKkNw9Mn7AjHM68uc9g5fXeUI=
+github.com/golang-jwt/jwt/v4 v4.5.2/go.mod h1:m21LjoU+eqJr34lmDMbreY2eSTRJ1cv77w39/MY0Ch0=
+github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
+github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
+github.com/jmoiron/sqlx v1.4.0 h1:1PLqN7S1UYp5t4SrVVnt4nUVNemrDAtxlulVe+Qgm3o=
+github.com/jmoiron/sqlx v1.4.0/go.mod h1:ZrZ7UsYB/weZdl2Bxg6jCRO9c3YHl8r3ahlKmRT4JLY=
+github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
+github.com/klauspost/compress v1.18.0/go.mod h1:2Pp+KzxcywXVXMr50+X0Q/Lsb43OQHYWRCY2AiWywWQ=
+github.com/klauspost/cpuid/v2 v2.0.1/go.mod h1:FInQzS24/EEf25PyTYn52gqo7WaD8xa0213Md/qVLRg=
+github.com/klauspost/cpuid/v2 v2.2.10 h1:tBs3QSyvjDyFTq3uoc/9xFpCuOsJQFNPiAhYdw2skhE=
+github.com/klauspost/cpuid/v2 v2.2.10/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
+github.com/lib/pq v1.10.9 h1:YXG7RB+JIjhP29X+OtkiDnYaXQwpS4JEWq7dtCCRUEw=
+github.com/lib/pq v1.10.9/go.mod h1:AlVN5x4E4T544tWzH6hKfbfQvm3HdbOxrmggDNAPY9o=
+github.com/mattn/go-sqlite3 v1.14.22 h1:2gZY6PC6kBnID23Tichd1K+Z0oS6nE/XwU+Vz/5o4kU=
+github.com/mattn/go-sqlite3 v1.14.22/go.mod h1:Uh1q+B4BYcTPb+yiD3kU8Ct7aC0hY9fxUwlHK0RXw+Y=
+github.com/minio/crc64nvme v1.0.1 h1:DHQPrYPdqK7jQG/Ls5CTBZWeex/2FMS3G5XGkycuFrY=
+github.com/minio/crc64nvme v1.0.1/go.mod h1:eVfm2fAzLlxMdUGc0EEBGSMmPwmXD5XiNRpnu9J3bvg=
+github.com/minio/md5-simd v1.1.2 h1:Gdi1DZK69+ZVMoNHRXJyNcxrMA4dSxoYHZSQbirFg34=
+github.com/minio/md5-simd v1.1.2/go.mod h1:MzdKDxYpY2BT9XQFocsiZf/NKVtR7nkE4RoEpN+20RM=
+github.com/minio/minio-go/v7 v7.0.92 h1:jpBFWyRS3p8P/9tsRc+NuvqoFi7qAmTCFPoRFmobbVw=
+github.com/minio/minio-go/v7 v7.0.92/go.mod h1:vTIc8DNcnAZIhyFsk8EB90AbPjj3j68aWIEQCiPj7d0=
+github.com/philhofer/fwd v1.1.3-0.20240916144458-20a13a1f6b7c h1:dAMKvw0MlJT1GshSTtih8C2gDs04w8dReiOGXrGLNoY=
+github.com/philhofer/fwd v1.1.3-0.20240916144458-20a13a1f6b7c/go.mod h1:RqIHx9QI14HlwKwm98g9Re5prTQ6LdeRQn+gXJFxsJM=
+github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
+github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
+github.com/rs/cors v1.11.1 h1:eU3gRzXLRK57F5rKMGMZURNdIG4EoAmX8k94r9wXWHA=
+github.com/rs/cors v1.11.1/go.mod h1:XyqrcTp5zjWr1wsJ8PIRZssZ8b/WMcMf71DJnit4EMU=
+github.com/rs/xid v1.6.0 h1:fV591PaemRlL6JfRxGDEPl69wICngIQ3shQtzfy2gxU=
+github.com/rs/xid v1.6.0/go.mod h1:7XoLgs4eV+QndskICGsho+ADou8ySMSjJKDIan90Nz0=
+github.com/stretchr/testify v1.9.0 h1:HtqpIVDClZ4nwg75+f6Lvsy/wHu+3BoSGCbBAcpTsTg=
+github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
+github.com/tinylib/msgp v1.3.0 h1:ULuf7GPooDaIlbyvgAxBV/FI7ynli6LZ1/nVUNu+0ww=
+github.com/tinylib/msgp v1.3.0/go.mod h1:ykjzy2wzgrlvpDCRc4LA8UXy6D8bzMSuAF3WD57Gok0=
+golang.org/x/crypto v0.38.0 h1:jt+WWG8IZlBnVbomuhg2Mdq0+BBQaHbtqHEFEigjUV8=
+golang.org/x/crypto v0.38.0/go.mod h1:MvrbAqul58NNYPKnOra203SB9vpuZW0e+RRZV+Ggqjw=
+golang.org/x/net v0.38.0 h1:vRMAPTMaeGqVhG5QyLJHqNDwecKTomGeqbnfZyKlBI8=
+golang.org/x/net v0.38.0/go.mod h1:ivrbrMbzFq5J41QOQh0siUuly180yBYtLp+CKbEaFx8=
+golang.org/x/sys v0.33.0 h1:q3i8TbbEz+JRD9ywIRlyRAQbM0qF7hu24q3teo2hbuw=
+golang.org/x/sys v0.33.0/go.mod h1:BJP2sWEmIv4KK5OTEluFJCKSidICx8ciO85XgH3Ak8k=
+golang.org/x/text v0.25.0 h1:qVyWApTSYLk/drJRO5mDlNYskwQznZmkpV2c8q9zls4=
+golang.org/x/text v0.25.0/go.mod h1:WEdwpYrmk1qmdHvhkSTNPm3app7v4rsT8F2UD6+VHIA=
+gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
+gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
+gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
+
+```
+
+`goback/internal/config/config.go`:
+
+```go
+package config
+
+import (
+	"os"
+)
+
+// Config holds application configuration.
+type Config struct {
+	DatabaseURL string
+	Port        string
+	JWTSecret   string
+}
+
+// LoadConfig loads configuration from environment variables.
+func LoadConfig() (*Config, error) {
+	return &Config{
+		DatabaseURL: os.Getenv("DATABASE_URL"),
+		Port:        os.Getenv("PORT"),
+		JWTSecret:   os.Getenv("JWT_SECRET"), // обязательно задать JWT_SECRET в окружении
+	}, nil
+}
+
+```
+
+`goback/internal/dto/file.go`:
+
+```go
+package dto
+
+import "time"
+
+// FileResponse — возвращаем клиенту метаданные по файлу
+type FileResponse struct {
+	ID         int       `json:"id"`
+	FolderID   int       `json:"folder_id"`
+	Name       string    `json:"name"`
+	StorageKey string    `json:"storage_key"`
+	SizeBytes  int64     `json:"size_bytes"`
+	OwnerID    int       `json:"owner_id"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
+// FileUploadRequest — запрос для загрузки нового файла
+type FileUploadRequest struct {
+	FolderID int    `json:"folder_id" binding:"required"`
+	Name     string `json:"name" binding:"required"`
+	// само содержимое файла обычно берётся из form-data, но ключ minio формируем на сервере
+	// поле StorageKey не приходит от клиента — сервер генерирует
+}
+
+```
+
+`goback/internal/dto/folder.go`:
+
+```go
+package dto
+
+import "time"
+
+// FolderResponse — то, что возвращаем клиенту при запросе папки
+type FolderResponse struct {
+	ID        int       `json:"id"`
+	Name      string    `json:"name"`
+	ParentID  *int      `json:"parent_id,omitempty"` // null для корня
+	IsCommon  bool      `json:"is_common"`           // true = общая папка, false = личная
+	OwnerID   *int      `json:"owner_id,omitempty"`  // null для общих папок
+	CreatedBy int       `json:"created_by"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// FolderCreateRequest — структура для создания новой папки
+type FolderCreateRequest struct {
+	Name     string `json:"name" binding:"required"`
+	ParentID *int   `json:"parent_id,omitempty"` // если nil — создаём корневую
+	IsCommon bool   `json:"is_common"`           // true = в общем пространстве (либо админ создаёт личную, но обычно false)
+	OwnerID  *int   `json:"owner_id,omitempty"`  // для личных папок: id пользователя
+	// created_by берем из контекста (авторизованный пользователь)
+}
+
+```
+
+`goback/internal/dto/user.go`:
+
+```go
+package dto
+
+import "time"
+
+// UserResponse — структура, которую мы возвращаем клиенту при GET-запросе пользователя
+type UserResponse struct {
+	ID        int       `json:"id"`
+	Username  string    `json:"username"`
+	Name      string    `json:"name"`
+	Role      string    `json:"role"` // "admin" или "user"
+	CreatedAt time.Time `json:"created_at"`
+}
+
+```
+
+`goback/internal/dto/whitelist.go`:
+
+```go
+package dto
+
+// WhitelistEntryResponse — возвращаем клиенту, кто имеет право записи в папку
+type WhitelistEntryResponse struct {
+	FolderID int `json:"folder_id"`
+	UserID   int `json:"user_id"`
+}
+
+// WhitelistAddRequest — запрос, чтобы добавить пользователя в белый список папки
+type WhitelistAddRequest struct {
+	FolderID int `json:"folder_id" binding:"required"`
+	UserID   int `json:"user_id" binding:"required"`
+}
+
+```
+
+`goback/internal/factory/factory.go`:
+
+```go
+package factory
+
+import (
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
+	"goback/internal/config"
+	"goback/internal/handler"
+	"goback/internal/repository"
+	"goback/internal/service"
+)
+
+// NewDatabase creates a new database connection.
+func NewDatabase(cfg *config.Config) (*sqlx.DB, error) {
+	db, err := sqlx.Open("postgres", cfg.DatabaseURL)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Ping(); err != nil {
+		return nil, err
+	}
+	return db, nil
+}
+
+// NewTaskRepository creates a new task repository.
+func NewTaskRepository(db *sqlx.DB) repository.TaskRepository {
+	return repository.NewTaskRepository(db)
+}
+
+// NewTaskService creates a new task service.
+func NewTaskService(repo repository.TaskRepository) service.TaskService {
+	return service.NewTaskService(repo)
+}
+
+// NewTaskHandler creates a new task handler.
+func NewTaskHandler(service service.TaskService) *handler.TaskHandler {
+	return handler.NewTaskHandler(service)
+}
+
+```
+
+`goback/internal/factory/minio.go`:
+
+```go
+package factory
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"strconv"
+
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
+)
+
+// NewMinioClient создаёт и возвращает *minio.Client, используя переменные окружения:
+//
+//	MINIO_ENDPOINT, MINIO_ACCESS, MINIO_SECRET, MINIO_SECURE (false/true)
+func NewMinioClient() *minio.Client {
+	endpoint := os.Getenv("MINIO_ENDPOINT")
+	accessKey := os.Getenv("MINIO_ACCESS")
+	secretKey := os.Getenv("MINIO_SECRET")
+	secureEnv := os.Getenv("MINIO_SECURE")
+
+	// по умолчанию считаем, что соединение небезопасное, если не задано иначе
+	secure := false
+	if secureEnv != "" {
+		parsed, err := strconv.ParseBool(secureEnv)
+		if err != nil {
+			log.Printf("warning: неверное значение MINIO_SECURE=%q, используем false", secureEnv)
+		} else {
+			secure = parsed
+		}
+	}
+	fmt.Println(secure)
+	minioClient, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
+		Secure: secure,
+	})
+	if err != nil {
+		log.Fatalf("не удалось создать minio-клиент: %v", err)
+	}
+
+	return minioClient
+}
+
+```
+
+`goback/internal/handler/auth.go`:
+
+```go
+package handler
+
+import (
+	"encoding/json"
+	"github.com/golang-jwt/jwt/v4"
+	"goback/internal/dto"
+	"goback/internal/repository"
+	"net/http"
+	"strings"
+
+	"goback/internal/service"
+)
+
+// AuthHandler содержит логику HTTP-эндпоинтов, связанных с аутентификацией
+type AuthHandler struct {
+	authService service.AuthService
+	userRepo    repository.UserRepository
+	jwtSecret   string
+}
+
+// NewAuthHandler создаёт новый AuthHandler.
+// Теперь мы передаём userRepo и jwtSecret дополнительно.
+func NewAuthHandler(authService service.AuthService, userRepo repository.UserRepository, jwtSecret string) *AuthHandler {
+	return &AuthHandler{
+		authService: authService,
+		userRepo:    userRepo,
+		jwtSecret:   jwtSecret,
+	}
+}
+
+// LoginRequest — структура, в которую распарсим JSON тела запроса
+// можно не выносить в dto, но для чистоты кода я оставлю здесь.
+type LoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// LoginResponse — возвращаем клиенту
+type LoginResponse struct {
+	Token string `json:"token"`
+}
+
+// Login обрабатывает POST /login
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request payload", http.StatusBadRequest)
+		return
+	}
+
+	// Проверяем, что заданы обе строки
+	if req.Username == "" || req.Password == "" {
+		http.Error(w, "username and password must be provided", http.StatusBadRequest)
+		return
+	}
+
+	// Вызываем сервис аутентификации
+	token, err := h.authService.Authenticate(req.Username, req.Password)
+	if err != nil {
+		http.Error(w, "invalid username or password", http.StatusUnauthorized)
+		return
+	}
+
+	// Успешно – возвращаем JSON с токеном
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(LoginResponse{Token: token})
+}
+
+func (h *AuthHandler) GetMe(w http.ResponseWriter, r *http.Request) {
+	// Извлекаем токен из заголовка Authorization
+	authHeader := r.Header.Get("Authorization")
+	if authHeader == "" {
+		http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
+		return
+	}
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || parts[0] != "Bearer" {
+		http.Error(w, "Invalid Authorization header", http.StatusUnauthorized)
+		return
+	}
+	tokenStr := parts[1]
+
+	// Парсим JWT
+	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, jwt.ErrSignatureInvalid
+		}
+		return []byte(h.jwtSecret), nil
+	})
+	if err != nil || !token.Valid {
+		http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
+		return
+	}
+
+	// Извлекаем user_id из claims
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+		return
+	}
+	uidFloat, ok := claims["user_id"].(float64)
+	if !ok {
+		http.Error(w, "user_id not found in token", http.StatusUnauthorized)
+		return
+	}
+	userID := int(uidFloat)
+
+	// Берём пользователя из БД по ID
+	user, err := h.userRepo.GetByID(userID)
+	if err != nil {
+		http.Error(w, "User not found", http.StatusNotFound)
+		return
+	}
+
+	// Формируем DTO
+	resp := dto.UserResponse{
+		ID:        user.ID,
+		Username:  user.Username,
+		Name:      user.Name, // если вы добавили поле Name в DTO, либо уберите
+		Role:      user.Role,
+		CreatedAt: user.CreatedAt,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+```
+
+`goback/internal/handler/jwt_middleware.go`:
+
+```go
+package handler
+
+import (
+	"context"
+	"net/http"
+	"strings"
+
+	"github.com/golang-jwt/jwt/v4"
+)
+
+// ключ в контексте для хранения user_id
+type contextKey string
+
+const userIDKey contextKey = "user_id"
+
+// JWTMiddleware возвращает middleware, который проверяет заголовок Authorization,
+// валидирует JWT и кладёт user_id в контекст.
+func JWTMiddleware(jwtSecret string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			if authHeader == "" {
+				http.Error(w, "Missing Authorization header", http.StatusUnauthorized)
+				return
+			}
+
+			parts := strings.SplitN(authHeader, " ", 2)
+			if len(parts) != 2 || parts[0] != "Bearer" {
+				http.Error(w, "Invalid Authorization header format", http.StatusUnauthorized)
+				return
+			}
+
+			tokenStr := parts[1]
+			// Парсим токен
+			token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
+				// проверяем метод подписи
+				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+					return nil, jwt.ErrSignatureInvalid
+				}
+				return []byte(jwtSecret), nil
+			})
+			if err != nil || !token.Valid {
+				http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
+				return
+			}
+
+			// Извлекаем claims и user_id
+			claims, ok := token.Claims.(jwt.MapClaims)
+			if !ok {
+				http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+				return
+			}
+
+			uidFloat, ok := claims["user_id"].(float64) // из JSON числа идут float64
+			if !ok {
+				http.Error(w, "user_id claim missing", http.StatusUnauthorized)
+				return
+			}
+			userID := int(uidFloat)
+
+			// Кладём user_id в контекст
+			ctx := context.WithValue(r.Context(), userIDKey, userID)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// GetUserIDFromContext возвращает user_id из контекста. Если не найдено — возвращает 0.
+func GetUserIDFromContext(ctx context.Context) int {
+	if val, ok := ctx.Value(userIDKey).(int); ok {
+		return val
+	}
+	return 0
+}
+
+```
+
+`goback/internal/handler/personal.go`:
+
+```go
+package handler
+
+import (
+	"encoding/json"
+	"goback/internal/model"
+	"log"
+	"net/http"
+	"strconv"
+
+	"goback/internal/service"
+
+	"github.com/go-chi/chi/v5"
+)
+
+// PersonalHandler объединяет логику для папок, файлов и закрепов
+type PersonalHandler struct {
+	folderSvc service.FolderService
+	fileSvc   service.FileService
+	pinSvc    service.PinService
+}
+
+// NewPersonalHandler создаёт новый обработчик
+func NewPersonalHandler(folderSvc service.FolderService, fileSvc service.FileService, pinSvc service.PinService) *PersonalHandler {
+	return &PersonalHandler{folderSvc: folderSvc, fileSvc: fileSvc, pinSvc: pinSvc}
+}
+
+// --- Работа с папками ---
+
+// CreateFolderHandler — POST /api/personal/folders
+func (h *PersonalHandler) CreateFolderHandler(w http.ResponseWriter, r *http.Request) {
+	type req struct {
+		Name     string `json:"name"`
+		ParentID *int   `json:"parent_id"`
+	}
+	var body req
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+	ownerID := GetUserIDFromContext(r.Context())
+	f, err := h.folderSvc.CreatePersonalFolder(body.Name, body.ParentID, ownerID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	json.NewEncoder(w).Encode(f)
+}
+
+// ListFoldersHandler — GET /api/personal/folders?parent_id={id}
+func (h *PersonalHandler) ListFoldersHandler(w http.ResponseWriter, r *http.Request) {
+	ownerID := GetUserIDFromContext(r.Context())
+	query := r.URL.Query().Get("parent_id")
+	var parentID *int
+	if query != "" {
+		pid, err := strconv.Atoi(query)
+		if err == nil {
+			parentID = &pid
+		}
+	}
+	folders, err := h.folderSvc.ListPersonalFolders(ownerID, parentID)
+	if err != nil {
+		http.Error(w, "failed to list", http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(folders)
+}
+
+// GetFolderHandler — GET /api/personal/folders/{id}
+func (h *PersonalHandler) GetFolderHandler(w http.ResponseWriter, r *http.Request) {
+	ownerID := GetUserIDFromContext(r.Context())
+	id, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	folder, err := h.folderSvc.GetPersonalFolder(id, ownerID)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	json.NewEncoder(w).Encode(folder)
+}
+
+// UpdateFolderHandler — PUT /api/personal/folders/{id}
+func (h *PersonalHandler) UpdateFolderHandler(w http.ResponseWriter, r *http.Request) {
+	ownerID := GetUserIDFromContext(r.Context())
+	id, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	var body struct {
+		Name     *string `json:"name,omitempty"`
+		ParentID *int    `json:"parent_id,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+	if body.Name != nil {
+		if err := h.folderSvc.RenameFolder(id, *body.Name, ownerID); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	if body.ParentID != nil {
+		if err := h.folderSvc.MoveFolder(id, body.ParentID, ownerID); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DeleteFolderHandler — DELETE /api/personal/folders/{id}
+func (h *PersonalHandler) DeleteFolderHandler(w http.ResponseWriter, r *http.Request) {
+	ownerID := GetUserIDFromContext(r.Context())
+	id, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	if err := h.folderSvc.DeleteFolder(id, ownerID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Работа с файлами ---
+
+// ListChildrenHandler — GET /api/personal/folders/{id}/children
+func (h *PersonalHandler) ListChildrenHandler(w http.ResponseWriter, r *http.Request) {
+	ownerID := GetUserIDFromContext(r.Context())
+	folderID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	// проверка доступа
+	_, err := h.folderSvc.GetPersonalFolder(folderID, ownerID)
+	if err != nil {
+		http.Error(w, "no access", http.StatusForbidden)
+		return
+	}
+	// собираем папки и файлы
+	folders, _ := h.folderSvc.ListPersonalFolders(ownerID, &folderID)
+	files, _ := h.fileSvc.ListFiles(folderID, ownerID)
+	resp := struct {
+		Folders []model.Folder `json:"folders"`
+		Files   []model.File   `json:"files"`
+	}{
+		Folders: folders,
+		Files:   files,
+	}
+	json.NewEncoder(w).Encode(resp)
+}
+
+// GenerateUploadURLHandler — POST /api/personal/folders/{id}/files/upload-url
+func (h *PersonalHandler) GenerateUploadURLHandler(w http.ResponseWriter, r *http.Request) {
+	ownerID := GetUserIDFromContext(r.Context())
+	folderID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	_, err := h.folderSvc.GetPersonalFolder(folderID, ownerID)
+	if err != nil {
+		http.Error(w, "no access", http.StatusForbidden)
+		return
+	}
+	var body struct {
+		Filename    string `json:"filename"`
+		ContentType string `json:"content_type"`
+		SizeBytes   int64  `json:"size_bytes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+	uploadURL, key, err := h.fileSvc.GenerateUploadURL(r.Context(), folderID, body.Filename, body.ContentType, body.SizeBytes, ownerID)
+	if err != nil {
+		log.Println(err)
+		http.Error(w, "cannot generate upload URL", http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]string{
+		"upload_url":  uploadURL,
+		"storage_key": key,
+	})
+}
+
+// RegisterUploadedFileHandler — POST /api/personal/folders/{id}/files
+func (h *PersonalHandler) RegisterUploadedFileHandler(w http.ResponseWriter, r *http.Request) {
+	ownerID := GetUserIDFromContext(r.Context())
+	folderID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	_, err := h.folderSvc.GetPersonalFolder(folderID, ownerID)
+	if err != nil {
+		http.Error(w, "no access", http.StatusForbidden)
+		return
+	}
+	var body struct {
+		Name       string `json:"name"`
+		StorageKey string `json:"storage_key"`
+		SizeBytes  int64  `json:"size_bytes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+	f, err := h.fileSvc.RegisterUploadedFile(folderID, body.Name, body.StorageKey, body.SizeBytes, ownerID)
+	if err != nil {
+		http.Error(w, "cannot register file", http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(f)
+}
+
+// GenerateDownloadURLHandler — GET /api/personal/files/{id}/download-url
+func (h *PersonalHandler) GenerateDownloadURLHandler(w http.ResponseWriter, r *http.Request) {
+	ownerID := GetUserIDFromContext(r.Context())
+	fileID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	url, err := h.fileSvc.GenerateDownloadURL(r.Context(), fileID, ownerID)
+	if err != nil {
+		http.Error(w, "cannot generate download URL", http.StatusForbidden)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]string{"download_url": url})
+}
+
+// GetFileMetadataHandler — GET /api/personal/files/{id}
+func (h *PersonalHandler) GetFileMetadataHandler(w http.ResponseWriter, r *http.Request) {
+	ownerID := GetUserIDFromContext(r.Context())
+	fileID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	f, err := h.fileSvc.GetFileMetadata(fileID, ownerID)
+	if err != nil {
+		http.Error(w, "not found or no access", http.StatusNotFound)
+		return
+	}
+	json.NewEncoder(w).Encode(f)
+}
+
+// UpdateFileHandler — PUT /api/personal/files/{id}
+func (h *PersonalHandler) UpdateFileHandler(w http.ResponseWriter, r *http.Request) {
+	ownerID := GetUserIDFromContext(r.Context())
+	fileID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	var body struct {
+		Name     *string `json:"name,omitempty"`
+		FolderID *int    `json:"folder_id,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+	// Если меняем имя
+	if body.Name != nil {
+		if err := h.fileSvc.RenameOrMoveFile(fileID, *body.Name, 0, ownerID); err != nil {
+			http.Error(w, "cannot rename", http.StatusBadRequest)
+			return
+		}
+	}
+	// Если меняем папку
+	if body.FolderID != nil {
+		if err := h.fileSvc.RenameOrMoveFile(fileID, "", *body.FolderID, ownerID); err != nil {
+			http.Error(w, "cannot move", http.StatusBadRequest)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DeleteFileHandler — DELETE /api/personal/files/{id}
+func (h *PersonalHandler) DeleteFileHandler(w http.ResponseWriter, r *http.Request) {
+	ownerID := GetUserIDFromContext(r.Context())
+	fileID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	if err := h.fileSvc.DeleteFile(fileID, ownerID); err != nil {
+		http.Error(w, "cannot delete", http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Работа с «закрепами» (pins) ---
+
+// ListPinsHandler — GET /api/personal/pins
+func (h *PersonalHandler) ListPinsHandler(w http.ResponseWriter, r *http.Request) {
+	ownerID := GetUserIDFromContext(r.Context())
+	pins, err := h.pinSvc.ListPins(ownerID)
+	if err != nil {
+		http.Error(w, "cannot list pins", http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(pins)
+}
+
+// AddPinHandler — POST /api/personal/pins
+func (h *PersonalHandler) AddPinHandler(w http.ResponseWriter, r *http.Request) {
+	ownerID := GetUserIDFromContext(r.Context())
+	var body struct {
+		FolderID int `json:"folder_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+	if err := h.pinSvc.AddPin(ownerID, body.FolderID); err != nil {
+		http.Error(w, "cannot add pin", http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// RemovePinHandler — DELETE /api/personal/pins/{folder_id}
+func (h *PersonalHandler) RemovePinHandler(w http.ResponseWriter, r *http.Request) {
+	ownerID := GetUserIDFromContext(r.Context())
+	folderID, _ := strconv.Atoi(chi.URLParam(r, "folder_id"))
+	if err := h.pinSvc.RemovePin(ownerID, folderID); err != nil {
+		http.Error(w, "cannot remove pin", http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+```
+
+`goback/internal/handler/task.go`:
+
+```go
+package handler
+
+import (
+	"encoding/json"
+	"goback/internal/service"
+	"net/http"
+	"strconv"
+
+	"github.com/go-chi/chi/v5"
+)
+
+// TaskHandler handles HTTP requests for tasks.
+type TaskHandler struct {
+	service service.TaskService
+}
+
+// NewTaskHandler creates a new task handler.
+func NewTaskHandler(service service.TaskService) *TaskHandler {
+	return &TaskHandler{service: service}
+}
+
+func (h *TaskHandler) CreateTask(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+
+	task, err := h.service.CreateTask(req.Title)
+	if err != nil {
+		http.Error(w, "Failed to create task", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(task)
+}
+
+func (h *TaskHandler) GetTask(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	task, err := h.service.GetTask(id)
+	if err != nil {
+		http.Error(w, "Task not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(task)
+}
+
+```
+
+`goback/internal/model/models.go`:
+
+```go
+package model
+
+import "time"
+
+// User — запись из таблицы users
+type User struct {
+	ID           int       `db:"id"`
+	Username     string    `db:"username"`
+	Name         string    `db:"name"`
+	PasswordHash string    `db:"password_hash"`
+	Role         string    `db:"role"` // "admin" или "user"
+	CreatedAt    time.Time `db:"created_at"`
+}
+
+// Folder — запись из таблицы folders
+type Folder struct {
+	ID        int       `db:"id"`
+	Name      string    `db:"name"`
+	ParentID  *int      `db:"parent_id"` // может быть NULL
+	IsCommon  bool      `db:"is_common"`
+	OwnerID   *int      `db:"owner_id"`   // NULL для общих, иначе ID пользователя
+	CreatedBy int       `db:"created_by"` // кто создал: admin или сам юзер
+	CreatedAt time.Time `db:"created_at"`
+}
+
+// FolderWhitelist — запись из таблицы folder_whitelist
+type FolderWhitelist struct {
+	ID       int `db:"id"`
+	FolderID int `db:"folder_id"`
+	UserID   int `db:"user_id"`
+}
+
+// File — запись из таблицы files
+type File struct {
+	ID         int       `db:"id"`
+	FolderID   int       `db:"folder_id"`
+	Name       string    `db:"name"`
+	StorageKey string    `db:"storage_key"`
+	SizeBytes  int64     `db:"size_bytes"`
+	OwnerID    int       `db:"owner_id"`
+	CreatedAt  time.Time `db:"created_at"`
+	UpdatedAt  time.Time `db:"updated_at"`
+}
+
+```
+
+`goback/internal/model/task.go`:
+
+```go
+package model
+
+import "time"
+
+// Task represents a single task in the system.
+type Task struct {
+	ID        int       `json:"id"`
+	Title     string    `json:"title"`
+	Completed bool      `json:"completed"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+```
+
+`goback/internal/repository/file.go`:
+
+```go
+package repository
+
+import (
+	"github.com/jmoiron/sqlx"
+	"goback/internal/model"
+	"time"
+)
+
+type FileRepository interface {
+	Create(file *model.File) error
+	GetByID(id int) (*model.File, error)
+	ListByFolder(folderID int) ([]model.File, error)
+	UpdateMetadata(id int, newName string, newFolder int) error
+	Delete(id int) error
+}
+
+type fileRepository struct {
+	db *sqlx.DB
+}
+
+func NewFileRepository(db *sqlx.DB) FileRepository {
+	return &fileRepository{db: db}
+}
+
+func (r *fileRepository) Create(file *model.File) error {
+	file.CreatedAt = time.Now()
+	file.UpdatedAt = time.Now()
+	query := `INSERT INTO files (folder_id, name, storage_key, size_bytes, owner_id, created_at, updated_at)
+	          VALUES (:folder_id, :name, :storage_key, :size_bytes, :owner_id, :created_at, :updated_at)
+	          RETURNING id`
+	rows, err := r.db.NamedQuery(query, file)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	if rows.Next() {
+		return rows.Scan(&file.ID)
+	}
+	return nil
+}
+
+func (r *fileRepository) GetByID(id int) (*model.File, error) {
+	f := &model.File{}
+	query := `SELECT id, folder_id, name, storage_key, size_bytes, owner_id, created_at, updated_at 
+	          FROM files WHERE id = $1`
+	if err := r.db.Get(f, query, id); err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+func (r *fileRepository) ListByFolder(folderID int) ([]model.File, error) {
+	var files []model.File
+	err := r.db.Select(&files, `SELECT id, folder_id, name, storage_key, size_bytes, owner_id, created_at, updated_at 
+	                            FROM files WHERE folder_id = $1`, folderID)
+	return files, err
+}
+
+func (r *fileRepository) UpdateMetadata(id int, newName string, newFolder int) error {
+	_, err := r.db.Exec(`UPDATE files SET name = $1, folder_id = $2, updated_at = $3 WHERE id = $4`,
+		newName, newFolder, time.Now(), id)
+	return err
+}
+
+func (r *fileRepository) Delete(id int) error {
+	_, err := r.db.Exec(`DELETE FROM files WHERE id = $1`, id)
+	return err
+}
+
+```
+
+`goback/internal/repository/folder.go`:
+
+```go
+package repository
+
+import (
+	"github.com/jmoiron/sqlx"
+	"goback/internal/model"
+	"time"
+)
+
+type FolderRepository interface {
+	Create(folder *model.Folder) error
+	GetByID(id int) (*model.Folder, error)
+	ListByOwner(ownerID int, parentID *int) ([]model.Folder, error)
+	UpdateName(id int, newName string) error
+	UpdateParent(id int, newParent *int) error
+	Delete(id int) error
+}
+
+type folderRepository struct {
+	db *sqlx.DB
+}
+
+func NewFolderRepository(db *sqlx.DB) FolderRepository {
+	return &folderRepository{db: db}
+}
+
+func (r *folderRepository) Create(folder *model.Folder) error {
+	query := `INSERT INTO folders (name, parent_id, owner_id, is_common, created_by, created_at)
+	          VALUES (:name, :parent_id, :owner_id, :is_common, :created_by, :created_at) RETURNING id`
+	folder.CreatedAt = time.Now()
+	rows, err := r.db.NamedQuery(query, folder)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	if rows.Next() {
+		return rows.Scan(&folder.ID)
+	}
+	return nil
+}
+
+func (r *folderRepository) GetByID(id int) (*model.Folder, error) {
+	f := &model.Folder{}
+	query := `SELECT id, name, parent_id, owner_id, is_common, created_by, created_at 
+	          FROM folders WHERE id = $1`
+	if err := r.db.Get(f, query, id); err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+func (r *folderRepository) ListByOwner(ownerID int, parentID *int) ([]model.Folder, error) {
+	var folders []model.Folder
+	if parentID == nil {
+		err := r.db.Select(&folders, `SELECT id, name, parent_id, owner_id, is_common, created_by, created_at 
+		                             FROM folders 
+		                             WHERE owner_id = $1 AND parent_id IS NULL`, ownerID)
+		return folders, err
+	}
+	err := r.db.Select(&folders, `SELECT id, name, parent_id, owner_id, is_common, created_by, created_at 
+	                             FROM folders 
+	                             WHERE owner_id = $1 AND parent_id = $2`, ownerID, *parentID)
+	return folders, err
+}
+
+func (r *folderRepository) UpdateName(id int, newName string) error {
+	_, err := r.db.Exec(`UPDATE folders SET name = $1 WHERE id = $2`, newName, id)
+	return err
+}
+
+func (r *folderRepository) UpdateParent(id int, newParent *int) error {
+	_, err := r.db.Exec(`UPDATE folders SET parent_id = $1 WHERE id = $2`, newParent, id)
+	return err
+}
+
+func (r *folderRepository) Delete(id int) error {
+	_, err := r.db.Exec(`DELETE FROM folders WHERE id = $1`, id)
+	return err
+}
+
+```
+
+`goback/internal/repository/pin.go`:
+
+```go
+package repository
+
+import (
+	"github.com/jmoiron/sqlx"
+)
+
+type PinRepository interface {
+	ListByUser(userID int) ([]int, error) // возвращает slice of folder_id
+	Create(userID, folderID int) error
+	Delete(userID, folderID int) error
+}
+
+type pinRepository struct {
+	db *sqlx.DB
+}
+
+func NewPinRepository(db *sqlx.DB) PinRepository {
+	return &pinRepository{db: db}
+}
+
+func (r *pinRepository) ListByUser(userID int) ([]int, error) {
+	var folderIDs []int
+	err := r.db.Select(&folderIDs, `SELECT folder_id FROM pinned_folders WHERE user_id = $1`, userID)
+	return folderIDs, err
+}
+
+func (r *pinRepository) Create(userID, folderID int) error {
+	_, err := r.db.Exec(`INSERT INTO pinned_folders (user_id, folder_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+		userID, folderID)
+	return err
+}
+
+func (r *pinRepository) Delete(userID, folderID int) error {
+	_, err := r.db.Exec(`DELETE FROM pinned_folders WHERE user_id = $1 AND folder_id = $2`, userID, folderID)
+	return err
+}
+
+```
+
+`goback/internal/repository/task.go`:
+
+```go
+package repository
+
+import (
+	"github.com/jmoiron/sqlx"
+	"goback/internal/model"
+)
+
+// TaskRepository defines methods for task data access.
+type TaskRepository interface {
+	Create(task *model.Task) error
+	GetByID(id int) (*model.Task, error)
+}
+
+// taskRepository implements TaskRepository.
+type taskRepository struct {
+	db *sqlx.DB
+}
+
+// NewTaskRepository creates a new task repository.
+func NewTaskRepository(db *sqlx.DB) TaskRepository {
+	return &taskRepository{db: db}
+}
+
+func (r *taskRepository) Create(task *model.Task) error {
+	query := `INSERT INTO tasks (title, completed, created_at) VALUES (:title, :completed, :created_at) RETURNING id`
+	rows, err := r.db.NamedQuery(query, task)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		return rows.Scan(&task.ID)
+	}
+	return nil
+}
+
+func (r *taskRepository) GetByID(id int) (*model.Task, error) {
+	task := &model.Task{}
+	query := `SELECT id, title, completed, created_at FROM tasks WHERE id = $1`
+	err := r.db.Get(task, query, id)
+	if err != nil {
+		return nil, err
+	}
+	return task, nil
+}
+
+```
+
+`goback/internal/repository/user.go`:
+
+```go
+package repository
+
+import (
+	"github.com/jmoiron/sqlx"
+	"goback/internal/model"
+)
+
+// UserRepository defines методы для работы с users.
+type UserRepository interface {
+	GetByUsername(username string) (*model.User, error)
+	GetByID(id int) (*model.User, error) // <-- новый метод
+}
+
+// userRepository implements UserRepository.
+type userRepository struct {
+	db *sqlx.DB
+}
+
+// NewUserRepository создаёт новый UserRepository.
+func NewUserRepository(db *sqlx.DB) UserRepository {
+	return &userRepository{db: db}
+}
+
+func (r *userRepository) GetByUsername(username string) (*model.User, error) {
+	user := &model.User{}
+	err := r.db.Get(user, "SELECT id, username, name, password_hash, role, created_at FROM users WHERE username = $1", username)
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+// GetByID возвращает пользователя по его ID.
+func (r *userRepository) GetByID(id int) (*model.User, error) {
+	user := &model.User{}
+	err := r.db.Get(user, "SELECT id, username, name, role, created_at FROM users WHERE id = $1", id)
+	if err != nil {
+		return nil, err
+	}
+	return user, nil
+}
+
+```
+
+`goback/internal/router/router.go`:
+
+```go
+package router
+
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/rs/cors"
+	"goback/internal/handler"
+)
+
+// SetupRoutes конфигурирует все маршруты
+func SetupRoutes(
+	taskHandler *handler.TaskHandler,
+	authHandler *handler.AuthHandler,
+	personalHandler *handler.PersonalHandler,
+	jwtSecret string,
+) http.Handler {
+	r := chi.NewRouter()
+
+	r.Use(middleware.Logger)
+	r.Use(middleware.RequestID)
+	r.Use(middleware.Recoverer)
+
+	// Публичный маршрут логина
+	r.Post("/login", authHandler.Login)
+
+	// Маршрут /me
+	r.With(handler.JWTMiddleware(jwtSecret)).Get("/me", authHandler.GetMe)
+
+	// Задачи (пример)
+	r.Route("/tasks", func(r chi.Router) {
+		r.Post("/create", taskHandler.CreateTask)
+		r.Get("/get/{id}", taskHandler.GetTask)
+	})
+
+	// Личное пространство — все маршруты под /api/personal защищены JWT
+	r.Route("/api/personal", func(r chi.Router) {
+		r.Use(handler.JWTMiddleware(jwtSecret))
+
+		// Папки
+		r.Post("/folders", personalHandler.CreateFolderHandler)
+		r.Get("/folders", personalHandler.ListFoldersHandler)
+		r.Get("/folders/{id}", personalHandler.GetFolderHandler)
+		r.Put("/folders/{id}", personalHandler.UpdateFolderHandler)
+		r.Delete("/folders/{id}", personalHandler.DeleteFolderHandler)
+
+		// Дочерние элементы (папки + файлы)
+		r.Get("/folders/{id}/children", personalHandler.ListChildrenHandler)
+
+		// Загрузка и регистрация файлов
+		r.Post("/folders/{id}/files/upload-url", personalHandler.GenerateUploadURLHandler)
+		r.Post("/folders/{id}/files", personalHandler.RegisterUploadedFileHandler)
+
+		// Файлы
+		r.Get("/files/{id}/download-url", personalHandler.GenerateDownloadURLHandler)
+		r.Get("/files/{id}", personalHandler.GetFileMetadataHandler)
+		r.Put("/files/{id}", personalHandler.UpdateFileHandler)
+		r.Delete("/files/{id}", personalHandler.DeleteFileHandler)
+
+		// Закрепы (pins)
+		r.Get("/pins", personalHandler.ListPinsHandler)
+		r.Post("/pins", personalHandler.AddPinHandler)
+		r.Delete("/pins/{folder_id}", personalHandler.RemovePinHandler)
+	})
+
+	c := cors.New(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
+		AllowCredentials: true,
+	})
+	return c.Handler(r)
+}
+
+```
+
+`goback/internal/service/auth.go`:
+
+```go
+package service
+
+import (
+	"errors"
+	"time"
+
+	"goback/internal/repository"
+
+	"github.com/golang-jwt/jwt/v4"
+	"golang.org/x/crypto/bcrypt"
+)
+
+// AuthService определяет метод для аутентификации и выдачи токена.
+type AuthService interface {
+	// Authenticate проверяет username/password и возвращает JWT или ошибку.
+	Authenticate(username, plainPassword string) (string, error)
+}
+
+// authService implements AuthService.
+type authService struct {
+	userRepo  repository.UserRepository
+	jwtSecret string
+}
+
+// NewAuthService создаёт новый AuthService.
+//
+//	userRepo-хранилище, jwtSecret – секрет для подписи токена.
+func NewAuthService(userRepo repository.UserRepository, jwtSecret string) AuthService {
+	return &authService{
+		userRepo:  userRepo,
+		jwtSecret: jwtSecret,
+	}
+}
+
+// Authenticate если username найден и пароль совпадает, возвращаем signed JWT.
+func (s *authService) Authenticate(username, plainPassword string) (string, error) {
+	// 1. Берём пользователя из БД
+	user, err := s.userRepo.GetByUsername(username)
+	if err != nil {
+		// обычно sqlx возвращает sql.ErrNoRows, но мы просто возвращаем общую ошибку
+		return "", errors.New("invalid username or password")
+	}
+
+	// 2. Сравниваем bcrypt-хеш с заданным plainPassword
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(plainPassword)); err != nil {
+		return "", errors.New("invalid username or password")
+	}
+
+	// 3. Генерируем JWT
+	//    Добавим в claims: user_id и role
+	claims := jwt.MapClaims{
+		"user_id": user.ID,
+		"role":    user.Role,
+		"exp":     time.Now().Add(time.Hour * 24).Unix(), // срок действия 24 часа
+		"iat":     time.Now().Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	signedToken, err := token.SignedString([]byte(s.jwtSecret))
+	if err != nil {
+		return "", err
+	}
+
+	return signedToken, nil
+}
+
+```
+
+`goback/internal/service/file.go`:
+
+```go
+package service
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/url"
+	"time"
+
+	"goback/internal/model"
+	"goback/internal/repository"
+
+	"github.com/minio/minio-go/v7"
+)
+
+type FileService interface {
+	GenerateUploadURL(ctx context.Context, folderID int, filename, contentType string, size int64, ownerID int) (string, string, error)
+	RegisterUploadedFile(folderID int, name, storageKey string, size int64, ownerID int) (*model.File, error)
+	GenerateDownloadURL(ctx context.Context, fileID, ownerID int) (string, error)
+	ListFiles(folderID, ownerID int) ([]model.File, error)
+	GetFileMetadata(fileID, ownerID int) (*model.File, error)
+	RenameOrMoveFile(fileID int, newName string, newFolderID, ownerID int) error
+	DeleteFile(fileID, ownerID int) error
+}
+
+type fileService struct {
+	repo       repository.FileRepository
+	minio      *minio.Client
+	bucketName string
+}
+
+func NewFileService(repo repository.FileRepository, minioClient *minio.Client, bucketName string) FileService {
+	return &fileService{repo: repo, minio: minioClient, bucketName: bucketName}
+}
+
+func (s *fileService) GenerateUploadURL(ctx context.Context, folderID int, filename, contentType string, size int64, ownerID int) (string, string, error) {
+	// Проверяем, что папка действительно принадлежит ownerID (здесь можно вызывать FolderService, но для простоты доверяем, что handler это проверил)
+	// Генерируем уникальный ключ: personal/{ownerID}/{folderID}/{timestamp}_{filename}
+	key := fmt.Sprintf("personal/%d/%d/%d_%s", ownerID, folderID, time.Now().UnixNano(), filename)
+	// options
+	reqParams := make(url.Values)
+	reqParams.Set("Content-Type", contentType)
+	// Сгенерируем presigned PUT URL
+	uploadURL, err := s.minio.PresignedPutObject(ctx, s.bucketName, key, time.Minute*15)
+	if err != nil {
+		return "", "", err
+	}
+	return uploadURL.String(), key, nil
+}
+
+func (s *fileService) RegisterUploadedFile(folderID int, name, storageKey string, size int64, ownerID int) (*model.File, error) {
+	f := &model.File{
+		FolderID:   folderID,
+		Name:       name,
+		StorageKey: storageKey,
+		SizeBytes:  size,
+		OwnerID:    ownerID,
+	}
+	if err := s.repo.Create(f); err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+func (s *fileService) GenerateDownloadURL(ctx context.Context, fileID, ownerID int) (string, error) {
+	f, err := s.repo.GetByID(fileID)
+	if err != nil {
+		return "", err
+	}
+	if f.OwnerID != ownerID {
+		return "", errors.New("no access")
+	}
+	// Presigned GET URL на 15 минут
+	downloadURL, err := s.minio.PresignedGetObject(ctx, s.bucketName, f.StorageKey, time.Minute*15, nil)
+	if err != nil {
+		return "", err
+	}
+	return downloadURL.String(), nil
+}
+
+func (s *fileService) ListFiles(folderID, ownerID int) ([]model.File, error) {
+	// Проверка доступа: здесь можно доверять, что handler проверил
+	return s.repo.ListByFolder(folderID)
+}
+
+func (s *fileService) GetFileMetadata(fileID, ownerID int) (*model.File, error) {
+	f, err := s.repo.GetByID(fileID)
+	if err != nil {
+		return nil, err
+	}
+	if f.OwnerID != ownerID {
+		return nil, errors.New("no access")
+	}
+	return f, nil
+}
+
+func (s *fileService) RenameOrMoveFile(fileID int, newName string, newFolderID, ownerID int) error {
+	f, err := s.repo.GetByID(fileID)
+	if err != nil {
+		return err
+	}
+	if f.OwnerID != ownerID {
+		return errors.New("no access")
+	}
+	// при перемещении или переименовании ключ в MinIO может остаться прежним или требовать копирования,
+	// но здесь считаем, что мы не изменяем физически объект, только метаданные.
+	return s.repo.UpdateMetadata(fileID, newName, newFolderID)
+}
+
+func (s *fileService) DeleteFile(fileID, ownerID int) error {
+	f, err := s.repo.GetByID(fileID)
+	if err != nil {
+		return err
+	}
+	if f.OwnerID != ownerID {
+		return errors.New("no access")
+	}
+	// Удаляем из MinIO
+	err = s.minio.RemoveObject(context.Background(), s.bucketName, f.StorageKey, minio.RemoveObjectOptions{})
+	if err != nil {
+		return err
+	}
+	// Удаляем запись в БД
+	return s.repo.Delete(fileID)
+}
+
+```
+
+`goback/internal/service/folder.go`:
+
+```go
+package service
+
+import (
+	"errors"
+	"goback/internal/model"
+	"goback/internal/repository"
+)
+
+type FolderService interface {
+	CreatePersonalFolder(name string, parentID *int, ownerID int) (*model.Folder, error)
+	ListPersonalFolders(ownerID int, parentID *int) ([]model.Folder, error)
+	GetPersonalFolder(id, ownerID int) (*model.Folder, error)
+	RenameFolder(id int, newName string, ownerID int) error
+	MoveFolder(id int, newParent *int, ownerID int) error
+	DeleteFolder(id, ownerID int) error
+}
+
+type folderService struct {
+	repo repository.FolderRepository
+}
+
+func NewFolderService(r repository.FolderRepository) FolderService {
+	return &folderService{repo: r}
+}
+
+func (s *folderService) CreatePersonalFolder(name string, parentID *int, ownerID int) (*model.Folder, error) {
+	// при создании личной папки is_common = false
+	f := &model.Folder{
+		Name:      name,
+		ParentID:  parentID,
+		OwnerID:   &ownerID,
+		IsCommon:  false,
+		CreatedBy: ownerID,
+	}
+	if err := s.repo.Create(f); err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+func (s *folderService) ListPersonalFolders(ownerID int, parentID *int) ([]model.Folder, error) {
+	return s.repo.ListByOwner(ownerID, parentID)
+}
+
+func (s *folderService) GetPersonalFolder(id, ownerID int) (*model.Folder, error) {
+	f, err := s.repo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+	// проверяем, что папка принадлежит ownerID и is_common = false
+	if f.OwnerID == nil || *f.OwnerID != ownerID || f.IsCommon {
+		return nil, errors.New("not found or no access")
+	}
+	return f, nil
+}
+
+func (s *folderService) RenameFolder(id int, newName string, ownerID int) error {
+	f, err := s.repo.GetByID(id)
+	if err != nil {
+		return err
+	}
+	if f.OwnerID == nil || *f.OwnerID != ownerID {
+		return errors.New("no access")
+	}
+	return s.repo.UpdateName(id, newName)
+}
+
+func (s *folderService) MoveFolder(id int, newParent *int, ownerID int) error {
+	f, err := s.repo.GetByID(id)
+	if err != nil {
+		return err
+	}
+	if f.OwnerID == nil || *f.OwnerID != ownerID {
+		return errors.New("no access")
+	}
+	// при перемещении нужно убедиться, что новый parent тоже принадлежит owner
+	if newParent != nil {
+		parent, err2 := s.repo.GetByID(*newParent)
+		if err2 != nil {
+			return err2
+		}
+		if parent.OwnerID == nil || *parent.OwnerID != ownerID {
+			return errors.New("no access to parent")
+		}
+	}
+	return s.repo.UpdateParent(id, newParent)
+}
+
+func (s *folderService) DeleteFolder(id, ownerID int) error {
+	f, err := s.repo.GetByID(id)
+	if err != nil {
+		return err
+	}
+	if f.OwnerID == nil || *f.OwnerID != ownerID {
+		return errors.New("no access")
+	}
+	return s.repo.Delete(id)
+}
+
+```
+
+`goback/internal/service/pin.go`:
+
+```go
+package service
+
+import (
+	"goback/internal/repository"
+)
+
+type PinService interface {
+	ListPins(userID int) ([]int, error)
+	AddPin(userID, folderID int) error
+	RemovePin(userID, folderID int) error
+}
+
+type pinService struct {
+	repo repository.PinRepository
+}
+
+func NewPinService(repo repository.PinRepository) PinService {
+	return &pinService{repo: repo}
+}
+
+func (s *pinService) ListPins(userID int) ([]int, error) {
+	return s.repo.ListByUser(userID)
+}
+
+func (s *pinService) AddPin(userID, folderID int) error {
+	return s.repo.Create(userID, folderID)
+}
+
+func (s *pinService) RemovePin(userID, folderID int) error {
+	return s.repo.Delete(userID, folderID)
+}
+
+```
+
+`goback/internal/service/task.go`:
+
+```go
+package service
+
+import (
+	"goback/internal/model"
+	"goback/internal/repository"
+	"time"
+)
+
+// TaskService defines methods for task business logic.
+type TaskService interface {
+	CreateTask(title string) (*model.Task, error)
+	GetTask(id int) (*model.Task, error)
+}
+
+// taskService implements TaskService.
+type taskService struct {
+	repo repository.TaskRepository
+}
+
+// NewTaskService creates a new task service.
+func NewTaskService(repo repository.TaskRepository) TaskService {
+	return &taskService{repo: repo}
+}
+
+func (s *taskService) CreateTask(title string) (*model.Task, error) {
+	task := &model.Task{
+		Title:     title,
+		Completed: false,
+		CreatedAt: time.Now(),
+	}
+	if err := s.repo.Create(task); err != nil {
+		return nil, err
+	}
+	return task, nil
+}
+
+func (s *taskService) GetTask(id int) (*model.Task, error) {
+	return s.repo.GetByID(id)
+}
+
+```
+
+`goback/migrations/20250604072058_add_users_table.down.sql`:
+
+```sql
+DROP TABLE IF EXISTS pinned_folders;
+DROP TABLE IF EXISTS files;
+DROP TABLE IF EXISTS folder_whitelist;
+DROP TABLE IF EXISTS folders;
+DROP TABLE IF EXISTS users;
+
+```
+
+`goback/migrations/20250604072058_add_users_table.up.sql`:
+
+```sql
+-- 1. Таблица пользователей и ролей
+CREATE TABLE users
+(
+    id            SERIAL PRIMARY KEY,
+    username      VARCHAR(100) NOT NULL UNIQUE,
+    name          VARCHAR(255) NOT NULL DEFAULT 'user',
+    password_hash TEXT         NOT NULL,
+    role          VARCHAR(10)  NOT NULL CHECK (role IN ('admin', 'user')),
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+-- 2. Общая таблица папок (folders) — для личного и общего пространства
+CREATE TABLE folders
+(
+    id         SERIAL PRIMARY KEY,
+    name       TEXT        NOT NULL,               -- имя папки, напр. 'Директор' или 'отчеты'
+    parent_id  INTEGER REFERENCES folders (id) ON DELETE CASCADE,
+    owner_id   INTEGER REFERENCES users (id),      -- если owner_id NOT NULL => личная папка этого пользователя
+    is_common  BOOLEAN     NOT NULL DEFAULT FALSE, -- true = общая папка, false = личная
+    created_by INTEGER     NOT NULL REFERENCES users (id),
+    -- кто создал (для общей — обязательно админ)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- Ограничение: если is_common = FALSE, то owner_id не может быть NULL
+    CONSTRAINT chk_owner
+        CHECK (
+            (is_common = FALSE AND owner_id IS NOT NULL)
+                OR
+            (is_common = TRUE AND owner_id IS NULL)
+            )
+);
+
+-- 3. Таблица «белых списков» для общего пространства
+--    Каждая строка означает: user_id может изменять (write) в папке folder_id и всех её потомках.
+CREATE TABLE folder_whitelist
+(
+    id        SERIAL PRIMARY KEY,
+    folder_id INTEGER NOT NULL REFERENCES folders (id) ON DELETE CASCADE,
+    user_id   INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    UNIQUE (folder_id, user_id)
+);
+
+-- 4. Таблица файлов
+--    Каждый файл лежит в какой-то папке. Поле storage_key = ключ объекта в MinIO.
+CREATE TABLE files
+(
+    id          SERIAL PRIMARY KEY,
+    folder_id   INTEGER     NOT NULL REFERENCES folders (id) ON DELETE CASCADE,
+    name        TEXT        NOT NULL,           -- название файла, напр. 'report.pdf'
+    storage_key TEXT        NOT NULL,           -- ключ (object key) в MinIO, где хранится файл
+    size_bytes  BIGINT      NOT NULL DEFAULT 0, -- размер в байтах (опционально)
+    owner_id    INTEGER     NOT NULL REFERENCES users (id),
+    -- кто загрузил/создал файл
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 5. Таблица «закрепов» (pinned_folders): связи пользователь ↔ папка
+CREATE TABLE pinned_folders
+(
+    id        SERIAL PRIMARY KEY,
+    user_id   INTEGER NOT NULL REFERENCES users  (id) ON DELETE CASCADE,
+    folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+    UNIQUE (user_id, folder_id)
+);
+
+
+-- Индекс для быстрого поиска файлов по ключу и папке
+CREATE INDEX idx_files_folder ON files (folder_id);
+CREATE INDEX idx_files_storage_key ON files (storage_key);
+
+
+```
+
+`goback/migrations/20250606065707_alter_table.down.sql`:
+
+```sql
+ALTER TABLE files
+    ALTER COLUMN folder_id SET NOT NULL;
+
+```
+
+`goback/migrations/20250606065707_alter_table.up.sql`:
+
+```sql
+ALTER TABLE files
+    ALTER COLUMN folder_id DROP NOT NULL;
+
+```

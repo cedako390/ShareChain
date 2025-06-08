@@ -19,7 +19,7 @@ import {useNavigate} from "react-router";
 
 // Основные ссылки
 const links = [
-    { icon: IconSmartHome, label: 'Личный диск', url: '/personal' },
+    { icon: IconSmartHome, label: 'Личный диск', url: '/' },
     { icon: IconCategory, label: 'Общий диск',  url: '/share' },
 ];
 

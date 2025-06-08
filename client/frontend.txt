@@ -36,8 +36,16 @@ src
 │   ├── auth
 │   │   ├── index.jsx
 │   │   └── index.module.css
-│   └── index.js
-└── postcss.config.cjs
+│   ├── index.js
+│   ├── personal
+│   │   ├── index.jsx
+│   │   └── index.module.css
+│   └── share
+│       ├── index.jsx
+│       └── index.module.css
+├── postcss.config.cjs
+└── store
+    └── url.js
 
 ```
 
@@ -69,16 +77,16 @@ export function Dolphin() {
                     )
                 })
             }
-            <File file={{ Name: "photo.jpg" }} />
-            <File file={{ Name: "document.pdf" }} />
-            <File file={{ Name: "table.xlsx" }} />
-            <File file={{ Name: "music.mp3" }} />
-            <File file={{ Name: "video.mp4" }} />
-            <File file={{ Name: "archive.zip" }} />
-            <File file={{ Name: "report.docx" }} />
-            <File file={{ Name: "notes.txt" }} />
-            <File file={{ Name: "presentation.pptx" }} />
-            <File file={{ Name: "unknownfile.xyz" }} />
+            {/*<File file={{ Name: "photo.jpg" }} />*/}
+            {/*<File file={{ Name: "document.pdf" }} />*/}
+            {/*<File file={{ Name: "table.xlsx" }} />*/}
+            {/*<File file={{ Name: "music.mp3" }} />*/}
+            {/*<File file={{ Name: "video.mp4" }} />*/}
+            {/*<File file={{ Name: "archive.zip" }} />*/}
+            {/*<File file={{ Name: "report.docx" }} />*/}
+            {/*<File file={{ Name: "notes.txt" }} />*/}
+            {/*<File file={{ Name: "presentation.pptx" }} />*/}
+            {/*<File file={{ Name: "unknownfile.xyz" }} />*/}
 
         </div>
     )
@@ -430,11 +438,12 @@ import { IconHome, IconDashboard, IconFileText } from '@tabler/icons-react';
 import { useAuth } from "../../context/AuthContext.jsx";
 import {Emoji} from "react-apple-emojis";
 import {EmojiPicker} from "../EmojiPicker/EmojiPicker.jsx";
+import {useNavigate} from "react-router";
 
 // Основные ссылки
 const links = [
-    { icon: IconSmartHome, label: 'Личный диск' },
-    { icon: IconCategory, label: 'Общий диск' },
+    { icon: IconSmartHome, label: 'Личный диск', url: '/' },
+    { icon: IconCategory, label: 'Общий диск',  url: '/share' },
 ];
 
 // Закреплённые папки (переименовали из `collections`)
@@ -471,10 +480,11 @@ const actions = [
 
 export function Sidebar() {
     const { logout } = useAuth();
+    const navigate = useNavigate();
 
     // Рендерим основные ссылки
     const mainLinks = links.map((link) => (
-        <UnstyledButton key={link.label} className={classes.mainLink}>
+        <UnstyledButton onClick={() => navigate(link.url)} key={link.label} className={classes.mainLink}>
             <div className={classes.mainLinkInner}>
                 <link.icon size={20} className={classes.mainLinkIcon} stroke={1.5} />
                 <span className={classes.linkText}>{link.label}</span>
@@ -924,20 +934,39 @@ body {
 `src/layout/DashboardLayout.jsx`:
 
 ```jsx
-// src/page/dashboard/index.jsx
-import React from 'react';
+import React, {useState} from 'react';
 import {Box} from '@mantine/core';
-import classes from './DashboardLayout.module.css';
+import styles from './DashboardLayout.module.css';
 import {Sidebar} from "../components/Sidebar/Sidebar.jsx";
 import {Outlet} from "react-router";
+import {useUrlStore} from "../store/url.js";
 
 export default function DashboardLayout() {
+    const a = useUrlStore(state => state.path)
 
     return (
-        <Box className={classes.container}>
+        <Box className={styles.container}>
             <Sidebar/>
 
-            <Box className={classes.mainContent}>
+            <Box className={styles.mainContent}>
+                <div className={styles.breadcrumb}>
+                    {a.map((item, index) => (
+                        <React.Fragment key={item.id}>
+                            <div
+                                className={
+                                    index === a.length - 1
+                                        ? `${styles.item} ${styles.current}`
+                                        : styles.item
+                                }
+                            >
+                                {item.name}
+                            </div>
+
+                            {index < a.length - 1 && <div className={styles.separator}>/</div>}
+                        </React.Fragment>
+                    ))}
+                </div>
+
                 <Outlet/>
             </Box>
         </Box>
@@ -949,7 +978,6 @@ export default function DashboardLayout() {
 `src/layout/DashboardLayout.module.css`:
 
 ```css
-/* src/page/dashboard/index.module.css */
 .container {
     display: flex;
     height: 100vh;
@@ -960,6 +988,47 @@ export default function DashboardLayout() {
     flex: 1;
     padding: 2rem;
     overflow-y: auto;
+}
+
+.breadcrumb {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    width: 100%;
+    background-color: #293241;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    padding: 8px 16px;
+    font-size: 16px;
+    color: #E0FBFC;
+    gap: 4px;
+}
+
+.item {
+    color: #E0FBFC;
+    cursor: pointer;
+    transition: color 0.1s ease, border-color 0.1s ease;
+    font-weight: 500;
+    padding: 4px 6px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+}
+
+.item:hover {
+    color: #EE6C4D;
+    border-color: #EE6C4D;
+    background-color: rgba(238, 108, 77, 0.1);
+}
+
+.separator {
+    color: #98C1D9;
+    user-select: none;
+}
+
+.current {
+    color: #EE6C4D;
+    font-weight: 600;
+    cursor: default;
 }
 
 ```
@@ -994,7 +1063,7 @@ import {BrowserRouter, Routes, Route, Navigate, createBrowserRouter, RouterProvi
 import {AuthProvider} from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 
-import {AuthPage} from "./page/index.js";
+import {AuthPage, PersonalPage, SharePage} from "./page/index.js";
 
 import {createTheme, MantineProvider} from "@mantine/core";
 import "@mantine/core/styles.css";
@@ -1006,6 +1075,7 @@ import emojiData from "./filtered.json"
 import RootLayout from "./layout/RootLayout.jsx";
 import DashboardLayout from "./layout/DashboardLayout.jsx";
 import {Dolphin} from "./components/Dolphin/Dolphin.jsx";
+import {useUrlStore} from "./store/url.js";
 
 const theme = createTheme({
     fontFamily: "Inter, sans-serif",
@@ -1029,25 +1099,33 @@ const root = document.getElementById("root");
 export const router = createBrowserRouter([
     {
         path: '/',
-        element: <RootLayout />,
+        element: <RootLayout/>,
         children: [
-            { path: 'login', element: <AuthPage /> },
+            {path: 'login', element: <AuthPage/>},
 
             {
-                element: <ProtectedRoute />,
+                element: <ProtectedRoute/>,
                 children: [
                     {
                         path: '/',
-                        element: <DashboardLayout />,
+                        element: <DashboardLayout/>,
                         children: [
-                            { index: true, element: <div><Dolphin/></div> },
-                            { path: 'private-example', element:  <div>privat</div> },
+                            {
+                                index: true,
+                                element: <PersonalPage/>,
+                                loader: () => {
+                                    // useUrlStore.getState().clear()
+                                    return null
+                                }
+                            },
+                            {path: 'share', element: <SharePage/>},
+                            {path: 'private-example', element: <div>privat</div>},
                         ],
                     },
                 ],
             },
 
-            { path: '*', element: <Navigate to='/' replace /> },
+            {path: '*', element: <Navigate to='/' replace/>},
         ],
     },
 ]);
@@ -1177,6 +1255,37 @@ export default function AuthPage() {
 ```js
 // src/page/index.js
 export { default as AuthPage } from './auth/index.jsx';
+export { default as PersonalPage } from './personal/index.jsx';
+export { default as SharePage } from './share/index.jsx';
+
+```
+
+`src/page/personal/index.jsx`:
+
+```jsx
+import {Dolphin} from "../../components/Dolphin/Dolphin.jsx";
+import {useParams} from "react-router";
+
+export default function PersonalPage() {
+    return (
+        <div>
+            <Dolphin/>
+        </div>
+    )
+}
+```
+
+`src/page/share/index.jsx`:
+
+```jsx
+export default function SharePage() {
+    return (
+        <div>
+            hello world
+
+        </div>
+    )
+}
 ```
 
 `src/postcss.config.cjs`:
@@ -1196,4 +1305,55 @@ module.exports = {
         },
     },
 };
+```
+
+`src/store/url.js`:
+
+```js
+import {create} from 'zustand'
+
+const useUrlStore = create((set) => ({
+    path: [
+        {
+            id: 1,
+            name: "Отчеты"
+        },
+        {
+            id: 2,
+            name: "Папка"
+        },
+        {
+            id: 3,
+            name: "Самара 2012"
+        },
+        {
+            id: 4,
+            name: "Планы"
+        },
+        {
+            id: 5,
+            name: "Эщкерее"
+        },
+    ],
+    enterPage: (page) => set((state) => ({
+        path: [...state.path, page],
+    })),
+    backPage: () => set((state) => ({
+        path:
+            state.path.length > 1
+                ? state.path.slice(0, -1)
+                : state.path,
+    })),
+    clear: () => set(() => ({
+        path: []
+    })),
+    truncateAfter: (id) => set((state) => {
+            const idx = state.path.findIndex((p) => p.id === id)
+            return idx !== -1
+                ? {path: state.path.slice(0, idx + 1)}
+                : {}
+        }),
+}))
+
+export {useUrlStore}
 ```
