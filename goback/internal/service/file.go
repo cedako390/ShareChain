@@ -17,7 +17,8 @@ type FileService interface {
 	GenerateUploadURL(ctx context.Context, folderID int, filename, contentType string, size int64, ownerID int) (string, string, error)
 	RegisterUploadedFile(folderID int, name, storageKey string, size int64, ownerID int) (*model.File, error)
 	GenerateDownloadURL(ctx context.Context, fileID, ownerID int) (string, error)
-	ListFiles(folderID, ownerID int) ([]model.File, error)
+	// Changed to accept a nullable parentID
+	ListFiles(ownerID int, parentID *int) ([]model.File, error)
 	GetFileMetadata(fileID, ownerID int) (*model.File, error)
 	RenameOrMoveFile(fileID int, newName string, newFolderID, ownerID int) error
 	DeleteFile(fileID, ownerID int) error
@@ -34,13 +35,9 @@ func NewFileService(repo repository.FileRepository, minioClient *minio.Client, b
 }
 
 func (s *fileService) GenerateUploadURL(ctx context.Context, folderID int, filename, contentType string, size int64, ownerID int) (string, string, error) {
-	// Проверяем, что папка действительно принадлежит ownerID (здесь можно вызывать FolderService, но для простоты доверяем, что handler это проверил)
-	// Генерируем уникальный ключ: personal/{ownerID}/{folderID}/{timestamp}_{filename}
 	key := fmt.Sprintf("personal/%d/%d/%d_%s", ownerID, folderID, time.Now().UnixNano(), filename)
-	// options
 	reqParams := make(url.Values)
 	reqParams.Set("Content-Type", contentType)
-	// Сгенерируем presigned PUT URL
 	uploadURL, err := s.minio.PresignedPutObject(ctx, s.bucketName, key, time.Minute*15)
 	if err != nil {
 		return "", "", err
@@ -70,7 +67,6 @@ func (s *fileService) GenerateDownloadURL(ctx context.Context, fileID, ownerID i
 	if f.OwnerID != ownerID {
 		return "", errors.New("no access")
 	}
-	// Presigned GET URL на 15 минут
 	downloadURL, err := s.minio.PresignedGetObject(ctx, s.bucketName, f.StorageKey, time.Minute*15, nil)
 	if err != nil {
 		return "", err
@@ -78,9 +74,9 @@ func (s *fileService) GenerateDownloadURL(ctx context.Context, fileID, ownerID i
 	return downloadURL.String(), nil
 }
 
-func (s *fileService) ListFiles(folderID, ownerID int) ([]model.File, error) {
-	// Проверка доступа: здесь можно доверять, что handler проверил
-	return s.repo.ListByFolder(folderID)
+// ListFiles now calls the new repository method.
+func (s *fileService) ListFiles(ownerID int, parentID *int) ([]model.File, error) {
+	return s.repo.ListByOwnerAndParent(ownerID, parentID)
 }
 
 func (s *fileService) GetFileMetadata(fileID, ownerID int) (*model.File, error) {
@@ -102,8 +98,6 @@ func (s *fileService) RenameOrMoveFile(fileID int, newName string, newFolderID, 
 	if f.OwnerID != ownerID {
 		return errors.New("no access")
 	}
-	// при перемещении или переименовании ключ в MinIO может остаться прежним или требовать копирования,
-	// но здесь считаем, что мы не изменяем физически объект, только метаданные.
 	return s.repo.UpdateMetadata(fileID, newName, newFolderID)
 }
 
@@ -115,11 +109,9 @@ func (s *fileService) DeleteFile(fileID, ownerID int) error {
 	if f.OwnerID != ownerID {
 		return errors.New("no access")
 	}
-	// Удаляем из MinIO
 	err = s.minio.RemoveObject(context.Background(), s.bucketName, f.StorageKey, minio.RemoveObjectOptions{})
 	if err != nil {
 		return err
 	}
-	// Удаляем запись в БД
 	return s.repo.Delete(fileID)
 }

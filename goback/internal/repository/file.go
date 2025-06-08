@@ -9,7 +9,8 @@ import (
 type FileRepository interface {
 	Create(file *model.File) error
 	GetByID(id int) (*model.File, error)
-	ListByFolder(folderID int) ([]model.File, error)
+	// ListByFolder is replaced by ListByOwnerAndParent for better filtering
+	ListByOwnerAndParent(ownerID int, parentID *int) ([]model.File, error)
 	UpdateMetadata(id int, newName string, newFolder int) error
 	Delete(id int) error
 }
@@ -49,10 +50,21 @@ func (r *fileRepository) GetByID(id int) (*model.File, error) {
 	return f, nil
 }
 
-func (r *fileRepository) ListByFolder(folderID int) ([]model.File, error) {
+// ListByOwnerAndParent fetches files for a given owner and parent folder.
+// If parentID is nil, it fetches files from the root.
+func (r *fileRepository) ListByOwnerAndParent(ownerID int, parentID *int) ([]model.File, error) {
 	var files []model.File
-	err := r.db.Select(&files, `SELECT id, folder_id, name, storage_key, size_bytes, owner_id, created_at, updated_at 
-	                            FROM files WHERE folder_id = $1`, folderID)
+	var err error
+	query := `SELECT id, folder_id, name, storage_key, size_bytes, owner_id, created_at, updated_at 
+	          FROM files WHERE owner_id = $1 AND `
+
+	if parentID == nil {
+		query += "folder_id IS NULL"
+		err = r.db.Select(&files, query, ownerID)
+	} else {
+		query += "folder_id = $2"
+		err = r.db.Select(&files, query, ownerID, *parentID)
+	}
 	return files, err
 }
 

@@ -9,7 +9,6 @@ import (
 	"goback/internal/handler"
 )
 
-// SetupRoutes конфигурирует все маршруты
 func SetupRoutes(
 	taskHandler *handler.TaskHandler,
 	authHandler *handler.AuthHandler,
@@ -22,31 +21,26 @@ func SetupRoutes(
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 
-	// Публичный маршрут логина
 	r.Post("/login", authHandler.Login)
-
-	// Маршрут /me
 	r.With(handler.JWTMiddleware(jwtSecret)).Get("/me", authHandler.GetMe)
 
-	// Задачи (пример)
 	r.Route("/tasks", func(r chi.Router) {
 		r.Post("/create", taskHandler.CreateTask)
 		r.Get("/get/{id}", taskHandler.GetTask)
 	})
 
-	// Личное пространство — все маршруты под /api/personal защищены JWT
 	r.Route("/api/personal", func(r chi.Router) {
 		r.Use(handler.JWTMiddleware(jwtSecret))
 
 		// Папки
 		r.Post("/folders", personalHandler.CreateFolderHandler)
-		r.Get("/folders", personalHandler.ListFoldersHandler)
+		r.Get("/folders", personalHandler.ListFoldersHandler) // This now gets folders and files
 		r.Get("/folders/{id}", personalHandler.GetFolderHandler)
 		r.Put("/folders/{id}", personalHandler.UpdateFolderHandler)
 		r.Delete("/folders/{id}", personalHandler.DeleteFolderHandler)
 
-		// Дочерние элементы (папки + файлы)
-		r.Get("/folders/{id}/children", personalHandler.ListChildrenHandler)
+		// The /children route is no longer needed
+		// r.Get("/folders/{id}/children", personalHandler.ListChildrenHandler)
 
 		// Загрузка и регистрация файлов
 		r.Post("/folders/{id}/files/upload-url", personalHandler.GenerateUploadURLHandler)

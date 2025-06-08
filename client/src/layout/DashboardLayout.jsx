@@ -6,7 +6,8 @@ import {Outlet} from "react-router";
 import {useUrlStore} from "../store/url.js";
 
 export default function DashboardLayout() {
-    const a = useUrlStore(state => state.path)
+    const path = useUrlStore(state => state.path)
+    const truncateAfter = useUrlStore(state => state.truncateAfter);
 
     return (
         <Box className={styles.container}>
@@ -14,11 +15,12 @@ export default function DashboardLayout() {
 
             <Box className={styles.mainContent}>
                 <div className={styles.breadcrumb}>
-                    {a.map((item, index) => (
-                        <React.Fragment key={item.id}>
+                    {path.map((item, index) => (
+                        <React.Fragment key={item.id || 'root'}>
                             <div
+                                onClick={() => truncateAfter(item.id)} // Click handler for navigation
                                 className={
-                                    index === a.length - 1
+                                    index === path.length - 1
                                         ? `${styles.item} ${styles.current}`
                                         : styles.item
                                 }
@@ -26,7 +28,7 @@ export default function DashboardLayout() {
                                 {item.name}
                             </div>
 
-                            {index < a.length - 1 && <div className={styles.separator}>/</div>}
+                            {index < path.length - 1 && <div className={styles.separator}>/</div>}
                         </React.Fragment>
                     ))}
                 </div>

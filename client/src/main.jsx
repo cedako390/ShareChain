@@ -36,7 +36,6 @@ axios.interceptors.request.use(
     },
     error => Promise.reject(error)
 );
-
 const root = document.getElementById("root");
 
 
@@ -57,8 +56,9 @@ export const router = createBrowserRouter([
                             {
                                 index: true,
                                 element: <PersonalPage/>,
+                                // Initialize the breadcrumb path for the root directory
                                 loader: () => {
-                                    // useUrlStore.getState().clear()
+                                    useUrlStore.setState({path: [{id: null, name: 'Личный диск'}]})
                                     return null
                                 }
                             },
@@ -73,7 +73,6 @@ export const router = createBrowserRouter([
         ],
     },
 ]);
-
 ReactDOM.createRoot(root).render(
     <MantineProvider theme={theme}>
         <EmojiProvider data={emojiData}>
