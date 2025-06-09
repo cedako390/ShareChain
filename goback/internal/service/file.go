@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"time"
 
@@ -14,14 +15,15 @@ import (
 )
 
 type FileService interface {
-	GenerateUploadURL(ctx context.Context, folderID int, filename, contentType string, size int64, ownerID int) (string, string, error)
-	RegisterUploadedFile(folderID int, name, storageKey string, size int64, ownerID int) (*model.File, error)
+	GenerateUploadURL(ctx context.Context, folderID *int, filename, contentType string, size int64, ownerID int) (string, string, error)
+	RegisterUploadedFile(folderID *int, name, storageKey string, size int64, ownerID int) (*model.File, error)
 	GenerateDownloadURL(ctx context.Context, fileID, ownerID int) (string, error)
-	// Changed to accept a nullable parentID
 	ListFiles(ownerID int, parentID *int) ([]model.File, error)
 	GetFileMetadata(fileID, ownerID int) (*model.File, error)
 	RenameOrMoveFile(fileID int, newName string, newFolderID, ownerID int) error
 	DeleteFile(fileID, ownerID int) error
+
+	ListCommonFiles(parentID *int) ([]model.File, error)
 }
 
 type fileService struct {
@@ -34,8 +36,19 @@ func NewFileService(repo repository.FileRepository, minioClient *minio.Client, b
 	return &fileService{repo: repo, minio: minioClient, bucketName: bucketName}
 }
 
-func (s *fileService) GenerateUploadURL(ctx context.Context, folderID int, filename, contentType string, size int64, ownerID int) (string, string, error) {
-	key := fmt.Sprintf("personal/%d/%d/%d_%s", ownerID, folderID, time.Now().UnixNano(), filename)
+func (s *fileService) ListCommonFiles(parentID *int) ([]model.File, error) {
+	return s.repo.ListByParent(parentID)
+}
+
+func (s *fileService) GenerateUploadURL(ctx context.Context, folderID *int, filename, contentType string, size int64, ownerID int) (string, string, error) {
+	var folderIDPath string
+	if folderID != nil {
+		folderIDPath = fmt.Sprintf("%d", *folderID)
+	} else {
+		folderIDPath = "root"
+	}
+
+	key := fmt.Sprintf("personal/%d/%s/%d_%s", ownerID, folderIDPath, time.Now().UnixNano(), filename)
 	reqParams := make(url.Values)
 	reqParams.Set("Content-Type", contentType)
 	uploadURL, err := s.minio.PresignedPutObject(ctx, s.bucketName, key, time.Minute*15)
@@ -45,7 +58,7 @@ func (s *fileService) GenerateUploadURL(ctx context.Context, folderID int, filen
 	return uploadURL.String(), key, nil
 }
 
-func (s *fileService) RegisterUploadedFile(folderID int, name, storageKey string, size int64, ownerID int) (*model.File, error) {
+func (s *fileService) RegisterUploadedFile(folderID *int, name, storageKey string, size int64, ownerID int) (*model.File, error) {
 	f := &model.File{
 		FolderID:   folderID,
 		Name:       name,
@@ -59,33 +72,30 @@ func (s *fileService) RegisterUploadedFile(folderID int, name, storageKey string
 	return f, nil
 }
 
-func (s *fileService) GenerateDownloadURL(ctx context.Context, fileID, ownerID int) (string, error) {
+func (s *fileService) GenerateDownloadURL(ctx context.Context, fileID int, userID int) (string, error) {
 	f, err := s.repo.GetByID(fileID)
 	if err != nil {
 		return "", err
 	}
-	if f.OwnerID != ownerID {
-		return "", errors.New("no access")
+	// Для личных файлов проверяем владельца, для общих - нет
+	if f.OwnerID != 0 && f.OwnerID != userID {
+		return "", errors.New("forbidden")
 	}
-	downloadURL, err := s.minio.PresignedGetObject(ctx, s.bucketName, f.StorageKey, time.Minute*15, nil)
-	if err != nil {
-		return "", err
-	}
-	return downloadURL.String(), nil
+
+	return "s.minio.PresignedGetObject(ctx, s.bucketName, f.StorageKey, 15*time.Minute, nil)", nil
 }
 
-// ListFiles now calls the new repository method.
 func (s *fileService) ListFiles(ownerID int, parentID *int) ([]model.File, error) {
 	return s.repo.ListByOwnerAndParent(ownerID, parentID)
 }
 
-func (s *fileService) GetFileMetadata(fileID, ownerID int) (*model.File, error) {
+func (s *fileService) GetFileMetadata(fileID int, userID int) (*model.File, error) {
 	f, err := s.repo.GetByID(fileID)
 	if err != nil {
 		return nil, err
 	}
-	if f.OwnerID != ownerID {
-		return nil, errors.New("no access")
+	if f.OwnerID != 0 && f.OwnerID != userID {
+		return nil, errors.New("forbidden")
 	}
 	return f, nil
 }
@@ -101,17 +111,20 @@ func (s *fileService) RenameOrMoveFile(fileID int, newName string, newFolderID, 
 	return s.repo.UpdateMetadata(fileID, newName, newFolderID)
 }
 
-func (s *fileService) DeleteFile(fileID, ownerID int) error {
+func (s *fileService) DeleteFile(fileID int, userID int) error {
+	// В сервисе мы больше не проверяем права, это делает хендлер через WhitelistService
 	f, err := s.repo.GetByID(fileID)
 	if err != nil {
 		return err
 	}
-	if f.OwnerID != ownerID {
-		return errors.New("no access")
-	}
+
+	// Удаляем объект из MinIO
 	err = s.minio.RemoveObject(context.Background(), s.bucketName, f.StorageKey, minio.RemoveObjectOptions{})
 	if err != nil {
-		return err
+		// Логируем ошибку, но не блокируем удаление из БД
+		log.Printf("WARN: could not delete object %s from minio: %v", f.StorageKey, err)
 	}
+
+	// Удаляем запись из БД
 	return s.repo.Delete(fileID)
 }

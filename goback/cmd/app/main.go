@@ -29,29 +29,36 @@ func main() {
 
 	minioClient := factory.NewMinioClient()
 
-	// создаём репозитории для личного пространства
+	// --- Репозитории ---
 	folderRepo := repository.NewFolderRepository(db)
 	fileRepo := repository.NewFileRepository(db)
 	pinRepo := repository.NewPinRepository(db)
+	userRepo := repository.NewUserRepository(db)
+	whitelistRepo := repository.NewWhitelistRepository(db) // <-- НОВЫЙ
+	taskRepo := factory.NewTaskRepository(db)
 
-	// создаём сервисы
+	// --- Сервисы ---
 	folderSvc := service.NewFolderService(folderRepo)
 	fileSvc := service.NewFileService(fileRepo, minioClient, os.Getenv("MINIO_BUCKET"))
 	pinSvc := service.NewPinService(pinRepo)
-
-	// создаём personal-handler
-	personalHnd := handler.NewPersonalHandler(folderSvc, fileSvc, pinSvc)
-	taskRepo := factory.NewTaskRepository(db)
-	userRepo := repository.NewUserRepository(db)
-
-	taskSvc := factory.NewTaskService(taskRepo)
 	authSvc := service.NewAuthService(userRepo, cfg.JWTSecret)
+	whitelistSvc := service.NewWhitelistService(folderRepo, whitelistRepo) // <-- НОВЫЙ
+	taskSvc := factory.NewTaskService(taskRepo)
 
-	taskHnd := factory.NewTaskHandler(taskSvc)
+	// --- Хендлеры ---
+	personalHnd := handler.NewPersonalHandler(folderSvc, fileSvc, pinSvc)
 	authHnd := handler.NewAuthHandler(authSvc, userRepo, cfg.JWTSecret)
+	commonHnd := handler.NewCommonHandler(folderSvc, fileSvc, whitelistSvc, userRepo) // <-- НОВЫЙ
+	taskHnd := factory.NewTaskHandler(taskSvc)
 
-	// Роутинг с передачей jwtSecret для middleware
-	r := router.SetupRoutes(taskHnd, authHnd, personalHnd, cfg.JWTSecret)
+	// --- Роутинг ---
+	r := router.SetupRoutes(
+		taskHnd,
+		authHnd,
+		personalHnd,
+		commonHnd, // <-- НОВЫЙ
+		cfg.JWTSecret,
+	)
 
 	port := cfg.Port
 	if port == "" {

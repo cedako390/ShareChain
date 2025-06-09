@@ -23,6 +23,7 @@ goback
 │   │   └── minio.go
 │   ├── handler
 │   │   ├── auth.go
+│   │   ├── common.go
 │   │   ├── jwt_middleware.go
 │   │   ├── personal.go
 │   │   └── task.go
@@ -34,7 +35,8 @@ goback
 │   │   ├── folder.go
 │   │   ├── pin.go
 │   │   ├── task.go
-│   │   └── user.go
+│   │   ├── user.go
+│   │   └── whitelist.go
 │   ├── router
 │   │   └── router.go
 │   └── service
@@ -42,12 +44,15 @@ goback
 │       ├── file.go
 │       ├── folder.go
 │       ├── pin.go
-│       └── task.go
+│       ├── task.go
+│       └── whitelist.go
 └── migrations
     ├── 20250604072058_add_users_table.down.sql
     ├── 20250604072058_add_users_table.up.sql
     ├── 20250606065707_alter_table.down.sql
-    └── 20250606065707_alter_table.up.sql
+    ├── 20250606065707_alter_table.up.sql
+    ├── 20250608120251_white_list.down.sql
+    └── 20250608120251_white_list.up.sql
 
 ```
 
@@ -140,29 +145,36 @@ func main() {
 
 	minioClient := factory.NewMinioClient()
 
-	// создаём репозитории для личного пространства
+	// --- Репозитории ---
 	folderRepo := repository.NewFolderRepository(db)
 	fileRepo := repository.NewFileRepository(db)
 	pinRepo := repository.NewPinRepository(db)
+	userRepo := repository.NewUserRepository(db)
+	whitelistRepo := repository.NewWhitelistRepository(db) // <-- НОВЫЙ
+	taskRepo := factory.NewTaskRepository(db)
 
-	// создаём сервисы
+	// --- Сервисы ---
 	folderSvc := service.NewFolderService(folderRepo)
 	fileSvc := service.NewFileService(fileRepo, minioClient, os.Getenv("MINIO_BUCKET"))
 	pinSvc := service.NewPinService(pinRepo)
-
-	// создаём personal-handler
-	personalHnd := handler.NewPersonalHandler(folderSvc, fileSvc, pinSvc)
-	taskRepo := factory.NewTaskRepository(db)
-	userRepo := repository.NewUserRepository(db)
-
-	taskSvc := factory.NewTaskService(taskRepo)
 	authSvc := service.NewAuthService(userRepo, cfg.JWTSecret)
+	whitelistSvc := service.NewWhitelistService(folderRepo, whitelistRepo) // <-- НОВЫЙ
+	taskSvc := factory.NewTaskService(taskRepo)
 
-	taskHnd := factory.NewTaskHandler(taskSvc)
+	// --- Хендлеры ---
+	personalHnd := handler.NewPersonalHandler(folderSvc, fileSvc, pinSvc)
 	authHnd := handler.NewAuthHandler(authSvc, userRepo, cfg.JWTSecret)
+	commonHnd := handler.NewCommonHandler(folderSvc, fileSvc, whitelistSvc, userRepo) // <-- НОВЫЙ
+	taskHnd := factory.NewTaskHandler(taskSvc)
 
-	// Роутинг с передачей jwtSecret для middleware
-	r := router.SetupRoutes(taskHnd, authHnd, personalHnd, cfg.JWTSecret)
+	// --- Роутинг ---
+	r := router.SetupRoutes(
+		taskHnd,
+		authHnd,
+		personalHnd,
+		commonHnd, // <-- НОВЫЙ
+		cfg.JWTSecret,
+	)
 
 	port := cfg.Port
 	if port == "" {
@@ -626,6 +638,366 @@ func (h *AuthHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 
 ```
 
+`goback/internal/handler/common.go`:
+
+```go
+package handler
+
+import (
+	"encoding/json"
+	"goback/internal/model"
+	"goback/internal/repository"
+	"goback/internal/service"
+	"net/http"
+	"strconv"
+
+	"github.com/go-chi/chi/v5"
+)
+
+// CommonHandler обрабатывает запросы для общего пространства.
+type CommonHandler struct {
+	folderSvc    service.FolderService
+	fileSvc      service.FileService
+	whitelistSvc service.WhitelistService
+	userRepo     repository.UserRepository // Нужен для получения модели пользователя
+}
+
+// NewCommonHandler создает новый обработчик для общего пространства.
+func NewCommonHandler(fs service.FolderService, fls service.FileService, ws service.WhitelistService, ur repository.UserRepository) *CommonHandler {
+	return &CommonHandler{
+		folderSvc:    fs,
+		fileSvc:      fls,
+		whitelistSvc: ws,
+		userRepo:     ur,
+	}
+}
+
+// getCurrentUser получает полную модель пользователя из контекста.
+func (h *CommonHandler) getCurrentUser(r *http.Request) (*model.User, error) {
+	userID := GetUserIDFromContext(r.Context())
+	if userID == 0 {
+		return nil, &httpError{message: "Unauthorized", code: http.StatusUnauthorized}
+	}
+	user, err := h.userRepo.GetByID(userID)
+	if err != nil {
+		return nil, &httpError{message: "User not found", code: http.StatusUnauthorized}
+	}
+	return user, nil
+}
+
+// httpError для удобной обработки ошибок в хендлерах.
+type httpError struct {
+	message string
+	code    int
+}
+
+func (e *httpError) Error() string {
+	return e.message
+}
+
+// --- Папки ---
+
+// ListRootFoldersHandler — GET /api/common/folders (возвращает корневые папки)
+func (h *CommonHandler) ListRootFoldersHandler(w http.ResponseWriter, r *http.Request) {
+	folders, err := h.folderSvc.ListCommonFolders(nil) // nil для корневых папок
+	if err != nil {
+		http.Error(w, "Failed to list root folders", http.StatusInternalServerError)
+		return
+	}
+	// В корневом каталоге общего диска файлы не лежат, только папки
+	resp := struct {
+		Folders []model.Folder `json:"folders"`
+		Files   []model.File   `json:"files"`
+	}{
+		Folders: folders,
+		Files:   []model.File{},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// ListChildrenHandler — GET /api/common/folders/{id}/children
+func (h *CommonHandler) ListChildrenHandler(w http.ResponseWriter, r *http.Request) {
+	folderID, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil {
+		http.Error(w, "Invalid folder ID", http.StatusBadRequest)
+		return
+	}
+
+	folders, err := h.folderSvc.ListCommonFolders(&folderID)
+	if err != nil {
+		http.Error(w, "Failed to list folders", http.StatusInternalServerError)
+		return
+	}
+
+	files, err := h.fileSvc.ListCommonFiles(&folderID)
+	if err != nil {
+		http.Error(w, "Failed to list files", http.StatusInternalServerError)
+		return
+	}
+
+	resp := struct {
+		Folders []model.Folder `json:"folders"`
+		Files   []model.File   `json:"files"`
+	}{
+		Folders: folders,
+		Files:   files,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// CreateFolderHandler — POST /api/common/folders (создание подпапки)
+func (h *CommonHandler) CreateFolderHandler(w http.ResponseWriter, r *http.Request) {
+	user, err := h.getCurrentUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), err.(*httpError).code)
+		return
+	}
+
+	var req struct {
+		Name     string `json:"name"`
+		ParentID int    `json:"parent_id"` // В общем пространстве всегда есть родитель
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	// Проверка прав на запись в родительскую папку
+	canWrite, err := h.whitelistSvc.CanWrite(user, req.ParentID)
+	if err != nil || !canWrite {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	folder, err := h.folderSvc.CreateCommonFolder(req.Name, &req.ParentID, user.ID)
+	if err != nil {
+		http.Error(w, "Failed to create folder", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(folder)
+}
+
+// UpdateFolderHandler — PUT /api/common/folders/{id}
+func (h *CommonHandler) UpdateFolderHandler(w http.ResponseWriter, r *http.Request) {
+	user, err := h.getCurrentUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), err.(*httpError).code)
+		return
+	}
+
+	folderID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	canWrite, err := h.whitelistSvc.CanWrite(user, folderID)
+	if err != nil || !canWrite {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	if err := h.folderSvc.RenameCommonFolder(folderID, req.Name); err != nil {
+		http.Error(w, "Failed to rename folder", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// DeleteFolderHandler — DELETE /api/common/folders/{id}
+func (h *CommonHandler) DeleteFolderHandler(w http.ResponseWriter, r *http.Request) {
+	user, err := h.getCurrentUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), err.(*httpError).code)
+		return
+	}
+	folderID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+
+	canWrite, err := h.whitelistSvc.CanWrite(user, folderID)
+	if err != nil || !canWrite {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	if err := h.folderSvc.DeleteCommonFolder(folderID); err != nil {
+		http.Error(w, "Failed to delete folder", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// --- Файлы ---
+
+// GenerateUploadURLHandler — POST /api/common/folders/{id}/files/upload-url
+func (h *CommonHandler) GenerateUploadURLHandler(w http.ResponseWriter, r *http.Request) {
+	user, err := h.getCurrentUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), err.(*httpError).code)
+		return
+	}
+
+	folderID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+
+	var req struct {
+		Filename    string `json:"filename"`
+		ContentType string `json:"content_type"`
+		SizeBytes   int64  `json:"size_bytes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	canWrite, err := h.whitelistSvc.CanWrite(user, folderID)
+	if err != nil || !canWrite {
+		http.Error(w, "Forbidden to upload to this folder", http.StatusForbidden)
+		return
+	}
+
+	uploadURL, key, err := h.fileSvc.GenerateUploadURL(r.Context(), &folderID, req.Filename, req.ContentType, req.SizeBytes, user.ID)
+	if err != nil {
+		http.Error(w, "Cannot generate upload URL", http.StatusInternalServerError)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]string{
+		"upload_url":  uploadURL,
+		"storage_key": key,
+	})
+}
+
+// RegisterUploadedFileHandler — POST /api/common/folders/{id}/files
+func (h *CommonHandler) RegisterUploadedFileHandler(w http.ResponseWriter, r *http.Request) {
+	user, err := h.getCurrentUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), err.(*httpError).code)
+		return
+	}
+
+	folderID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+
+	var req struct {
+		Name       string `json:"name"`
+		StorageKey string `json:"storage_key"`
+		SizeBytes  int64  `json:"size_bytes"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	canWrite, err := h.whitelistSvc.CanWrite(user, folderID)
+	if err != nil || !canWrite {
+		http.Error(w, "Forbidden to register file in this folder", http.StatusForbidden)
+		return
+	}
+
+	file, err := h.fileSvc.RegisterUploadedFile(&folderID, req.Name, req.StorageKey, req.SizeBytes, user.ID)
+	if err != nil {
+		http.Error(w, "Cannot register file", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(file)
+}
+
+// GenerateDownloadURLHandler — GET /api/common/files/{id}/download-url
+func (h *CommonHandler) GenerateDownloadURLHandler(w http.ResponseWriter, r *http.Request) {
+	// Доступ на скачивание есть у всех аутентифицированных пользователей
+	if _, err := h.getCurrentUser(r); err != nil {
+		http.Error(w, err.Error(), err.(*httpError).code)
+		return
+	}
+
+	fileID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	// Для общего файла ownerID не важен, сервис должен это обработать
+	url, err := h.fileSvc.GenerateDownloadURL(r.Context(), fileID, 0)
+	if err != nil {
+		http.Error(w, "Cannot generate download URL", http.StatusForbidden)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]string{"download_url": url})
+}
+
+// DeleteFileHandler — DELETE /api/common/files/{id}
+func (h *CommonHandler) DeleteFileHandler(w http.ResponseWriter, r *http.Request) {
+	user, err := h.getCurrentUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), err.(*httpError).code)
+		return
+	}
+
+	fileID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+
+	// Для удаления нужно проверить права на папку, в которой лежит файл
+	file, err := h.fileSvc.GetFileMetadata(fileID, 0) // ownerID не важен
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	canWrite, err := h.whitelistSvc.CanWrite(user, *file.FolderID)
+	if err != nil || !canWrite {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	// ownerID при удалении не важен, т.к. права уже проверены
+	if err := h.fileSvc.DeleteFile(fileID, 0); err != nil {
+		http.Error(w, "Cannot delete file", http.StatusBadRequest)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// UpdateFileHandler — PUT /api/common/files/{id}
+func (h *CommonHandler) UpdateFileHandler(w http.ResponseWriter, r *http.Request) {
+	user, err := h.getCurrentUser(r)
+	if err != nil {
+		http.Error(w, err.Error(), err.(*httpError).code)
+		return
+	}
+
+	fileID, _ := strconv.Atoi(chi.URLParam(r, "id"))
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	file, err := h.fileSvc.GetFileMetadata(fileID, 0)
+	if err != nil {
+		http.Error(w, "File not found", http.StatusNotFound)
+		return
+	}
+
+	canWrite, err := h.whitelistSvc.CanWrite(user, *file.FolderID)
+	if err != nil || !canWrite {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+	// ownerID не важен, права проверены
+	if err := h.fileSvc.RenameOrMoveFile(fileID, req.Name, *file.FolderID, 0); err != nil {
+		http.Error(w, "Cannot rename file", http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+```
+
 `goback/internal/handler/jwt_middleware.go`:
 
 ```go
@@ -749,11 +1121,16 @@ func (h *PersonalHandler) CreateFolderHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 	ownerID := GetUserIDFromContext(r.Context())
-	f, err := h.folderSvc.CreatePersonalFolder(body.Name, body.ParentID, ownerID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if body.Name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
 		return
 	}
+	f, err := h.folderSvc.CreatePersonalFolder(body.Name, body.ParentID, ownerID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(f)
 }
 
@@ -770,10 +1147,23 @@ func (h *PersonalHandler) ListFoldersHandler(w http.ResponseWriter, r *http.Requ
 	}
 	folders, err := h.folderSvc.ListPersonalFolders(ownerID, parentID)
 	if err != nil {
-		http.Error(w, "failed to list", http.StatusInternalServerError)
+		http.Error(w, "failed to list folders", http.StatusInternalServerError)
 		return
 	}
-	json.NewEncoder(w).Encode(folders)
+	files, err := h.fileSvc.ListFiles(ownerID, parentID)
+	if err != nil {
+		http.Error(w, "failed to list files", http.StatusInternalServerError)
+		return
+	}
+	resp := struct {
+		Folders []model.Folder `json:"folders"`
+		Files   []model.File   `json:"files"`
+	}{
+		Folders: folders,
+		Files:   files,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 // GetFolderHandler — GET /api/personal/folders/{id}
@@ -828,50 +1218,30 @@ func (h *PersonalHandler) DeleteFolderHandler(w http.ResponseWriter, r *http.Req
 
 // --- Работа с файлами ---
 
-// ListChildrenHandler — GET /api/personal/folders/{id}/children
-func (h *PersonalHandler) ListChildrenHandler(w http.ResponseWriter, r *http.Request) {
-	ownerID := GetUserIDFromContext(r.Context())
-	folderID, _ := strconv.Atoi(chi.URLParam(r, "id"))
-	// проверка доступа
-	_, err := h.folderSvc.GetPersonalFolder(folderID, ownerID)
-	if err != nil {
-		http.Error(w, "no access", http.StatusForbidden)
-		return
-	}
-	// собираем папки и файлы
-	folders, _ := h.folderSvc.ListPersonalFolders(ownerID, &folderID)
-	files, _ := h.fileSvc.ListFiles(folderID, ownerID)
-	resp := struct {
-		Folders []model.Folder `json:"folders"`
-		Files   []model.File   `json:"files"`
-	}{
-		Folders: folders,
-		Files:   files,
-	}
-	json.NewEncoder(w).Encode(resp)
-}
-
-// GenerateUploadURLHandler — POST /api/personal/folders/{id}/files/upload-url
+// GenerateUploadURLHandler — POST /api/personal/files/upload-url
 func (h *PersonalHandler) GenerateUploadURLHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
-	folderID, _ := strconv.Atoi(chi.URLParam(r, "id"))
-	_, err := h.folderSvc.GetPersonalFolder(folderID, ownerID)
-	if err != nil {
-		http.Error(w, "no access", http.StatusForbidden)
-		return
-	}
 	var body struct {
 		Filename    string `json:"filename"`
 		ContentType string `json:"content_type"`
 		SizeBytes   int64  `json:"size_bytes"`
+		FolderID    *int   `json:"folder_id"` // Nullable for root
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
 	}
-	uploadURL, key, err := h.fileSvc.GenerateUploadURL(r.Context(), folderID, body.Filename, body.ContentType, body.SizeBytes, ownerID)
+	// Verify access to parent folder if it's not root
+	if body.FolderID != nil {
+		_, err := h.folderSvc.GetPersonalFolder(*body.FolderID, ownerID)
+		if err != nil {
+			http.Error(w, "no access to parent folder", http.StatusForbidden)
+			return
+		}
+	}
+	uploadURL, key, err := h.fileSvc.GenerateUploadURL(r.Context(), body.FolderID, body.Filename, body.ContentType, body.SizeBytes, ownerID)
 	if err != nil {
-		log.Println(err)
+		log.Printf("Error generating upload URL: %v", err)
 		http.Error(w, "cannot generate upload URL", http.StatusInternalServerError)
 		return
 	}
@@ -881,29 +1251,33 @@ func (h *PersonalHandler) GenerateUploadURLHandler(w http.ResponseWriter, r *htt
 	})
 }
 
-// RegisterUploadedFileHandler — POST /api/personal/folders/{id}/files
+// RegisterUploadedFileHandler — POST /api/personal/files
 func (h *PersonalHandler) RegisterUploadedFileHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
-	folderID, _ := strconv.Atoi(chi.URLParam(r, "id"))
-	_, err := h.folderSvc.GetPersonalFolder(folderID, ownerID)
-	if err != nil {
-		http.Error(w, "no access", http.StatusForbidden)
-		return
-	}
 	var body struct {
 		Name       string `json:"name"`
 		StorageKey string `json:"storage_key"`
 		SizeBytes  int64  `json:"size_bytes"`
+		FolderID   *int   `json:"folder_id"` // Nullable for root
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
 	}
-	f, err := h.fileSvc.RegisterUploadedFile(folderID, body.Name, body.StorageKey, body.SizeBytes, ownerID)
+	// Verify access to parent folder
+	if body.FolderID != nil {
+		_, err := h.folderSvc.GetPersonalFolder(*body.FolderID, ownerID)
+		if err != nil {
+			http.Error(w, "no access to parent folder", http.StatusForbidden)
+			return
+		}
+	}
+	f, err := h.fileSvc.RegisterUploadedFile(body.FolderID, body.Name, body.StorageKey, body.SizeBytes, ownerID)
 	if err != nil {
 		http.Error(w, "cannot register file", http.StatusInternalServerError)
 		return
 	}
+	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(f)
 }
 
@@ -943,14 +1317,12 @@ func (h *PersonalHandler) UpdateFileHandler(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
 	}
-	// Если меняем имя
 	if body.Name != nil {
 		if err := h.fileSvc.RenameOrMoveFile(fileID, *body.Name, 0, ownerID); err != nil {
 			http.Error(w, "cannot rename", http.StatusBadRequest)
 			return
 		}
 	}
-	// Если меняем папку
 	if body.FolderID != nil {
 		if err := h.fileSvc.RenameOrMoveFile(fileID, "", *body.FolderID, ownerID); err != nil {
 			http.Error(w, "cannot move", http.StatusBadRequest)
@@ -972,8 +1344,6 @@ func (h *PersonalHandler) DeleteFileHandler(w http.ResponseWriter, r *http.Reque
 }
 
 // --- Работа с «закрепами» (pins) ---
-
-// ListPinsHandler — GET /api/personal/pins
 func (h *PersonalHandler) ListPinsHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
 	pins, err := h.pinSvc.ListPins(ownerID)
@@ -983,8 +1353,6 @@ func (h *PersonalHandler) ListPinsHandler(w http.ResponseWriter, r *http.Request
 	}
 	json.NewEncoder(w).Encode(pins)
 }
-
-// AddPinHandler — POST /api/personal/pins
 func (h *PersonalHandler) AddPinHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
 	var body struct {
@@ -1000,8 +1368,6 @@ func (h *PersonalHandler) AddPinHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
-
-// RemovePinHandler — DELETE /api/personal/pins/{folder_id}
 func (h *PersonalHandler) RemovePinHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
 	folderID, _ := strconv.Atoi(chi.URLParam(r, "folder_id"))
@@ -1115,7 +1481,7 @@ type FolderWhitelist struct {
 // File — запись из таблицы files
 type File struct {
 	ID         int       `db:"id"`
-	FolderID   int       `db:"folder_id"`
+	FolderID   *int      `db:"folder_id"` // Nullable for root files
 	Name       string    `db:"name"`
 	StorageKey string    `db:"storage_key"`
 	SizeBytes  int64     `db:"size_bytes"`
@@ -1157,8 +1523,9 @@ import (
 type FileRepository interface {
 	Create(file *model.File) error
 	GetByID(id int) (*model.File, error)
-	ListByFolder(folderID int) ([]model.File, error)
-	UpdateMetadata(id int, newName string, newFolder int) error
+	ListByOwnerAndParent(ownerID int, parentID *int) ([]model.File, error)
+	ListByParent(parentID *int) ([]model.File, error) // <-- НОВЫЙ МЕТОД
+	UpdateMetadata(id int, newName string, newFolderID int) error
 	Delete(id int) error
 }
 
@@ -1197,22 +1564,48 @@ func (r *fileRepository) GetByID(id int) (*model.File, error) {
 	return f, nil
 }
 
-func (r *fileRepository) ListByFolder(folderID int) ([]model.File, error) {
+func (r *fileRepository) ListByOwnerAndParent(ownerID int, parentID *int) ([]model.File, error) {
 	var files []model.File
-	err := r.db.Select(&files, `SELECT id, folder_id, name, storage_key, size_bytes, owner_id, created_at, updated_at 
-	                            FROM files WHERE folder_id = $1`, folderID)
+	var err error
+	query := `SELECT id, folder_id, name, storage_key, size_bytes, owner_id, created_at, updated_at 
+	          FROM files WHERE owner_id = $1 AND `
+
+	if parentID == nil {
+		query += "folder_id IS NULL"
+		err = r.db.Select(&files, query, ownerID)
+	} else {
+		query += "folder_id = $2"
+		err = r.db.Select(&files, query, ownerID, *parentID)
+	}
 	return files, err
 }
 
-func (r *fileRepository) UpdateMetadata(id int, newName string, newFolder int) error {
+func (r *fileRepository) UpdateMetadata(id int, newName string, newFolderID int) error {
 	_, err := r.db.Exec(`UPDATE files SET name = $1, folder_id = $2, updated_at = $3 WHERE id = $4`,
-		newName, newFolder, time.Now(), id)
+		newName, newFolderID, time.Now(), id)
 	return err
 }
 
 func (r *fileRepository) Delete(id int) error {
 	_, err := r.db.Exec(`DELETE FROM files WHERE id = $1`, id)
 	return err
+}
+
+// ListByParent возвращает файлы из папки, не фильтруя по owner_id.
+func (r *fileRepository) ListByParent(parentID *int) ([]model.File, error) {
+	var files []model.File
+	var err error
+	query := `SELECT id, folder_id, name, storage_key, size_bytes, owner_id, created_at, updated_at
+	          FROM files WHERE `
+	if parentID == nil {
+		query += "folder_id IS NULL"
+		err = r.db.Select(&files, query)
+	} else {
+		query += "folder_id = $1"
+		err = r.db.Select(&files, query, *parentID)
+	}
+
+	return files, err
 }
 
 ```
@@ -1231,7 +1624,9 @@ import (
 type FolderRepository interface {
 	Create(folder *model.Folder) error
 	GetByID(id int) (*model.Folder, error)
+	GetFolderPath(id int) ([]model.Folder, error) // <-- НОВЫЙ МЕТОД
 	ListByOwner(ownerID int, parentID *int) ([]model.Folder, error)
+	ListCommon(parentID *int) ([]model.Folder, error) // <-- НОВЫЙ МЕТОД
 	UpdateName(id int, newName string) error
 	UpdateParent(id int, newParent *int) error
 	Delete(id int) error
@@ -1297,6 +1692,43 @@ func (r *folderRepository) UpdateParent(id int, newParent *int) error {
 func (r *folderRepository) Delete(id int) error {
 	_, err := r.db.Exec(`DELETE FROM folders WHERE id = $1`, id)
 	return err
+}
+
+// GetFolderPath возвращает путь от указанной папки до корня.
+func (r *folderRepository) GetFolderPath(id int) ([]model.Folder, error) {
+	var path []model.Folder
+	query := `
+		WITH RECURSIVE folder_path AS (
+			SELECT id, name, parent_id, is_common, owner_id, created_by, created_at
+			FROM folders
+			WHERE id = $1
+			UNION ALL
+			SELECT f.id, f.name, f.parent_id, f.is_common, f.owner_id, f.created_by, f.created_at
+			FROM folders f
+			JOIN folder_path fp ON f.id = fp.parent_id
+		)
+		SELECT id, name, parent_id, is_common, owner_id, created_by, created_at FROM folder_path;
+	`
+	err := r.db.Select(&path, query, id)
+	return path, err
+}
+
+// ListCommon возвращает список общих папок.
+// Если parentID is nil - возвращает корневые.
+func (r *folderRepository) ListCommon(parentID *int) ([]model.Folder, error) {
+	var folders []model.Folder
+	var err error
+	baseQuery := `SELECT id, name, parent_id, owner_id, is_common, created_by, created_at 
+	              FROM folders WHERE is_common = TRUE AND `
+
+	if parentID == nil {
+		query := baseQuery + "parent_id IS NULL"
+		err = r.db.Select(&folders, query)
+	} else {
+		query := baseQuery + "parent_id = $1"
+		err = r.db.Select(&folders, query, *parentID)
+	}
+	return folders, err
 }
 
 ```
@@ -1442,6 +1874,39 @@ func (r *userRepository) GetByID(id int) (*model.User, error) {
 
 ```
 
+`goback/internal/repository/whitelist.go`:
+
+```go
+package repository
+
+import (
+	"github.com/jmoiron/sqlx"
+)
+
+// WhitelistRepository определяет методы для работы с белым списком папок.
+type WhitelistRepository interface {
+	// Check проверяет, находится ли пользователь в белом списке для указанной папки.
+	Check(userID, folderID int) (bool, error)
+}
+
+type whitelistRepository struct {
+	db *sqlx.DB
+}
+
+// NewWhitelistRepository создает новый WhitelistRepository.
+func NewWhitelistRepository(db *sqlx.DB) WhitelistRepository {
+	return &whitelistRepository{db: db}
+}
+
+func (r *whitelistRepository) Check(userID, folderID int) (bool, error) {
+	var exists bool
+	query := `SELECT EXISTS(SELECT 1 FROM folder_whitelist WHERE user_id = $1 AND folder_id = $2)`
+	err := r.db.Get(&exists, query, userID, folderID)
+	return exists, err
+}
+
+```
+
 `goback/internal/router/router.go`:
 
 ```go
@@ -1461,6 +1926,7 @@ func SetupRoutes(
 	taskHandler *handler.TaskHandler,
 	authHandler *handler.AuthHandler,
 	personalHandler *handler.PersonalHandler,
+	commonHandler *handler.CommonHandler,
 	jwtSecret string,
 ) http.Handler {
 	r := chi.NewRouter()
@@ -1469,19 +1935,14 @@ func SetupRoutes(
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 
-	// Публичный маршрут логина
 	r.Post("/login", authHandler.Login)
-
-	// Маршрут /me
 	r.With(handler.JWTMiddleware(jwtSecret)).Get("/me", authHandler.GetMe)
 
-	// Задачи (пример)
 	r.Route("/tasks", func(r chi.Router) {
 		r.Post("/create", taskHandler.CreateTask)
 		r.Get("/get/{id}", taskHandler.GetTask)
 	})
 
-	// Личное пространство — все маршруты под /api/personal защищены JWT
 	r.Route("/api/personal", func(r chi.Router) {
 		r.Use(handler.JWTMiddleware(jwtSecret))
 
@@ -1492,14 +1953,12 @@ func SetupRoutes(
 		r.Put("/folders/{id}", personalHandler.UpdateFolderHandler)
 		r.Delete("/folders/{id}", personalHandler.DeleteFolderHandler)
 
-		// Дочерние элементы (папки + файлы)
-		r.Get("/folders/{id}/children", personalHandler.ListChildrenHandler)
-
+		// --- NEW FILE ROUTES ---
 		// Загрузка и регистрация файлов
-		r.Post("/folders/{id}/files/upload-url", personalHandler.GenerateUploadURLHandler)
-		r.Post("/folders/{id}/files", personalHandler.RegisterUploadedFileHandler)
+		r.Post("/files/upload-url", personalHandler.GenerateUploadURLHandler)
+		r.Post("/files", personalHandler.RegisterUploadedFileHandler)
 
-		// Файлы
+		// Файлы (метаданные и скачивание)
 		r.Get("/files/{id}/download-url", personalHandler.GenerateDownloadURLHandler)
 		r.Get("/files/{id}", personalHandler.GetFileMetadataHandler)
 		r.Put("/files/{id}", personalHandler.UpdateFileHandler)
@@ -1509,6 +1968,24 @@ func SetupRoutes(
 		r.Get("/pins", personalHandler.ListPinsHandler)
 		r.Post("/pins", personalHandler.AddPinHandler)
 		r.Delete("/pins/{folder_id}", personalHandler.RemovePinHandler)
+	})
+
+	r.Route("/api/common", func(r chi.Router) {
+		r.Use(handler.JWTMiddleware(jwtSecret))
+
+		// Папки
+		r.Get("/folders", commonHandler.ListRootFoldersHandler)            // Список корневых папок
+		r.Get("/folders/{id}/children", commonHandler.ListChildrenHandler) // Содержимое папки
+		r.Post("/folders", commonHandler.CreateFolderHandler)              // Создать подпапку
+		r.Put("/folders/{id}", commonHandler.UpdateFolderHandler)          // Переименовать
+		r.Delete("/folders/{id}", commonHandler.DeleteFolderHandler)       // Удалить
+
+		// Файлы
+		r.Get("/files/{id}/download-url", commonHandler.GenerateDownloadURLHandler)      // URL для скачивания (всем)
+		r.Post("/folders/{id}/files/upload-url", commonHandler.GenerateUploadURLHandler) // URL для загрузки (с правами)
+		r.Post("/folders/{id}/files", commonHandler.RegisterUploadedFileHandler)         // Регистрация файла (с правами)
+		r.Put("/files/{id}", commonHandler.UpdateFileHandler)                            // Переименовать файл (с правами)
+		r.Delete("/files/{id}", commonHandler.DeleteFileHandler)                         // Удалить файл (с правами)
 	})
 
 	c := cors.New(cors.Options{
@@ -1602,6 +2079,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"time"
 
@@ -1612,13 +2090,15 @@ import (
 )
 
 type FileService interface {
-	GenerateUploadURL(ctx context.Context, folderID int, filename, contentType string, size int64, ownerID int) (string, string, error)
-	RegisterUploadedFile(folderID int, name, storageKey string, size int64, ownerID int) (*model.File, error)
+	GenerateUploadURL(ctx context.Context, folderID *int, filename, contentType string, size int64, ownerID int) (string, string, error)
+	RegisterUploadedFile(folderID *int, name, storageKey string, size int64, ownerID int) (*model.File, error)
 	GenerateDownloadURL(ctx context.Context, fileID, ownerID int) (string, error)
-	ListFiles(folderID, ownerID int) ([]model.File, error)
+	ListFiles(ownerID int, parentID *int) ([]model.File, error)
 	GetFileMetadata(fileID, ownerID int) (*model.File, error)
 	RenameOrMoveFile(fileID int, newName string, newFolderID, ownerID int) error
 	DeleteFile(fileID, ownerID int) error
+
+	ListCommonFiles(parentID *int) ([]model.File, error)
 }
 
 type fileService struct {
@@ -1631,14 +2111,21 @@ func NewFileService(repo repository.FileRepository, minioClient *minio.Client, b
 	return &fileService{repo: repo, minio: minioClient, bucketName: bucketName}
 }
 
-func (s *fileService) GenerateUploadURL(ctx context.Context, folderID int, filename, contentType string, size int64, ownerID int) (string, string, error) {
-	// Проверяем, что папка действительно принадлежит ownerID (здесь можно вызывать FolderService, но для простоты доверяем, что handler это проверил)
-	// Генерируем уникальный ключ: personal/{ownerID}/{folderID}/{timestamp}_{filename}
-	key := fmt.Sprintf("personal/%d/%d/%d_%s", ownerID, folderID, time.Now().UnixNano(), filename)
-	// options
+func (s *fileService) ListCommonFiles(parentID *int) ([]model.File, error) {
+	return s.repo.ListByParent(parentID)
+}
+
+func (s *fileService) GenerateUploadURL(ctx context.Context, folderID *int, filename, contentType string, size int64, ownerID int) (string, string, error) {
+	var folderIDPath string
+	if folderID != nil {
+		folderIDPath = fmt.Sprintf("%d", *folderID)
+	} else {
+		folderIDPath = "root"
+	}
+
+	key := fmt.Sprintf("personal/%d/%s/%d_%s", ownerID, folderIDPath, time.Now().UnixNano(), filename)
 	reqParams := make(url.Values)
 	reqParams.Set("Content-Type", contentType)
-	// Сгенерируем presigned PUT URL
 	uploadURL, err := s.minio.PresignedPutObject(ctx, s.bucketName, key, time.Minute*15)
 	if err != nil {
 		return "", "", err
@@ -1646,7 +2133,7 @@ func (s *fileService) GenerateUploadURL(ctx context.Context, folderID int, filen
 	return uploadURL.String(), key, nil
 }
 
-func (s *fileService) RegisterUploadedFile(folderID int, name, storageKey string, size int64, ownerID int) (*model.File, error) {
+func (s *fileService) RegisterUploadedFile(folderID *int, name, storageKey string, size int64, ownerID int) (*model.File, error) {
 	f := &model.File{
 		FolderID:   folderID,
 		Name:       name,
@@ -1660,34 +2147,30 @@ func (s *fileService) RegisterUploadedFile(folderID int, name, storageKey string
 	return f, nil
 }
 
-func (s *fileService) GenerateDownloadURL(ctx context.Context, fileID, ownerID int) (string, error) {
+func (s *fileService) GenerateDownloadURL(ctx context.Context, fileID int, userID int) (string, error) {
 	f, err := s.repo.GetByID(fileID)
 	if err != nil {
 		return "", err
 	}
-	if f.OwnerID != ownerID {
-		return "", errors.New("no access")
+	// Для личных файлов проверяем владельца, для общих - нет
+	if f.OwnerID != 0 && f.OwnerID != userID {
+		return "", errors.New("forbidden")
 	}
-	// Presigned GET URL на 15 минут
-	downloadURL, err := s.minio.PresignedGetObject(ctx, s.bucketName, f.StorageKey, time.Minute*15, nil)
-	if err != nil {
-		return "", err
-	}
-	return downloadURL.String(), nil
+
+	return s.minio.PresignedGetObject(ctx, s.bucketName, f.StorageKey, 15*time.Minute, nil)
 }
 
-func (s *fileService) ListFiles(folderID, ownerID int) ([]model.File, error) {
-	// Проверка доступа: здесь можно доверять, что handler проверил
-	return s.repo.ListByFolder(folderID)
+func (s *fileService) ListFiles(ownerID int, parentID *int) ([]model.File, error) {
+	return s.repo.ListByOwnerAndParent(ownerID, parentID)
 }
 
-func (s *fileService) GetFileMetadata(fileID, ownerID int) (*model.File, error) {
+func (s *fileService) GetFileMetadata(fileID int, userID int) (*model.File, error) {
 	f, err := s.repo.GetByID(fileID)
 	if err != nil {
 		return nil, err
 	}
-	if f.OwnerID != ownerID {
-		return nil, errors.New("no access")
+	if f.OwnerID != 0 && f.OwnerID != userID {
+		return nil, errors.New("forbidden")
 	}
 	return f, nil
 }
@@ -1700,25 +2183,24 @@ func (s *fileService) RenameOrMoveFile(fileID int, newName string, newFolderID, 
 	if f.OwnerID != ownerID {
 		return errors.New("no access")
 	}
-	// при перемещении или переименовании ключ в MinIO может остаться прежним или требовать копирования,
-	// но здесь считаем, что мы не изменяем физически объект, только метаданные.
 	return s.repo.UpdateMetadata(fileID, newName, newFolderID)
 }
 
-func (s *fileService) DeleteFile(fileID, ownerID int) error {
+func (s *fileService) DeleteFile(fileID int, userID int) error {
+	// В сервисе мы больше не проверяем права, это делает хендлер через WhitelistService
 	f, err := s.repo.GetByID(fileID)
 	if err != nil {
 		return err
 	}
-	if f.OwnerID != ownerID {
-		return errors.New("no access")
-	}
-	// Удаляем из MinIO
+
+	// Удаляем объект из MinIO
 	err = s.minio.RemoveObject(context.Background(), s.bucketName, f.StorageKey, minio.RemoveObjectOptions{})
 	if err != nil {
-		return err
+		// Логируем ошибку, но не блокируем удаление из БД
+		log.Printf("WARN: could not delete object %s from minio: %v", f.StorageKey, err)
 	}
-	// Удаляем запись в БД
+
+	// Удаляем запись из БД
 	return s.repo.Delete(fileID)
 }
 
@@ -1742,6 +2224,12 @@ type FolderService interface {
 	RenameFolder(id int, newName string, ownerID int) error
 	MoveFolder(id int, newParent *int, ownerID int) error
 	DeleteFolder(id, ownerID int) error
+
+	// --- Новые методы для common ---
+	ListCommonFolders(parentID *int) ([]model.Folder, error)
+	CreateCommonFolder(name string, parentID *int, creatorID int) (*model.Folder, error)
+	RenameCommonFolder(id int, newName string) error
+	DeleteCommonFolder(id int) error
 }
 
 type folderService struct {
@@ -1750,6 +2238,32 @@ type folderService struct {
 
 func NewFolderService(r repository.FolderRepository) FolderService {
 	return &folderService{repo: r}
+}
+
+func (s *folderService) ListCommonFolders(parentID *int) ([]model.Folder, error) {
+	return s.repo.ListCommon(parentID)
+}
+
+func (s *folderService) CreateCommonFolder(name string, parentID *int, creatorID int) (*model.Folder, error) {
+	f := &model.Folder{
+		Name:      name,
+		ParentID:  parentID,
+		IsCommon:  true,
+		OwnerID:   nil, // У общих папок нет владельца
+		CreatedBy: creatorID,
+	}
+	err := s.repo.Create(f)
+	return f, err
+}
+
+func (s *folderService) RenameCommonFolder(id int, newName string) error {
+	// Здесь не нужна проверка владельца, права проверяются в хендлере
+	return s.repo.UpdateName(id, newName)
+}
+
+func (s *folderService) DeleteCommonFolder(id int) error {
+	// Аналогично, права проверяются в хендлере
+	return s.repo.Delete(id)
 }
 
 func (s *folderService) CreatePersonalFolder(name string, parentID *int, ownerID int) (*model.Folder, error) {
@@ -1910,6 +2424,63 @@ func (s *taskService) GetTask(id int) (*model.Task, error) {
 
 ```
 
+`goback/internal/service/whitelist.go`:
+
+```go
+package service
+
+import (
+	"goback/internal/model"
+	"goback/internal/repository"
+)
+
+// WhitelistService определяет бизнес-логику для проверки прав доступа.
+type WhitelistService interface {
+	// CanWrite проверяет, имеет ли пользователь право на запись в указанную папку.
+	CanWrite(user *model.User, folderID int) (bool, error)
+}
+
+type whitelistService struct {
+	folderRepo    repository.FolderRepository
+	whitelistRepo repository.WhitelistRepository
+}
+
+// NewWhitelistService создает новый WhitelistService.
+func NewWhitelistService(fr repository.FolderRepository, wr repository.WhitelistRepository) WhitelistService {
+	return &whitelistService{folderRepo: fr, whitelistRepo: wr}
+}
+
+// CanWrite реализует проверку прав:
+// 1. Администраторы могут всё.
+// 2. Пользователь может, если он есть в белом списке самой папки или любой из её родительских папок.
+func (s *whitelistService) CanWrite(user *model.User, folderID int) (bool, error) {
+	// Администраторы имеют полный доступ
+	if user.Role == "admin" {
+		return true, nil
+	}
+
+	// Получаем путь от папки до корня
+	path, err := s.folderRepo.GetFolderPath(folderID)
+	if err != nil {
+		return false, err
+	}
+
+	// Проверяем каждую папку в пути на наличие пользователя в белом списке
+	for _, folder := range path {
+		ok, err := s.whitelistRepo.Check(user.ID, folder.ID)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+```
+
 `goback/migrations/20250604072058_add_users_table.down.sql`:
 
 ```sql
@@ -2012,4 +2583,21 @@ ALTER TABLE files
 ALTER TABLE files
     ALTER COLUMN folder_id DROP NOT NULL;
 
+```
+
+`goback/migrations/20250608120251_white_list.up.sql`:
+
+```sql
+-- backend/migrations/20250608120000_add_common_space_tables.up.sql
+
+-- Добавляем флаг is_common в таблицу folders, если его еще нет
+ALTER TABLE folders ADD COLUMN IF NOT EXISTS is_common BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Таблица для белого списка пользователей, имеющих право на запись в общие папки
+CREATE TABLE IF NOT EXISTS folder_whitelist (
+                                                id SERIAL PRIMARY KEY,
+                                                folder_id INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE (folder_id, user_id)
+    );
 ```

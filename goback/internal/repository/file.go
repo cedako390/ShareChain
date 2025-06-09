@@ -9,9 +9,9 @@ import (
 type FileRepository interface {
 	Create(file *model.File) error
 	GetByID(id int) (*model.File, error)
-	// ListByFolder is replaced by ListByOwnerAndParent for better filtering
 	ListByOwnerAndParent(ownerID int, parentID *int) ([]model.File, error)
-	UpdateMetadata(id int, newName string, newFolder int) error
+	ListByParent(parentID *int) ([]model.File, error) // <-- НОВЫЙ МЕТОД
+	UpdateMetadata(id int, newName string, newFolderID int) error
 	Delete(id int) error
 }
 
@@ -50,8 +50,6 @@ func (r *fileRepository) GetByID(id int) (*model.File, error) {
 	return f, nil
 }
 
-// ListByOwnerAndParent fetches files for a given owner and parent folder.
-// If parentID is nil, it fetches files from the root.
 func (r *fileRepository) ListByOwnerAndParent(ownerID int, parentID *int) ([]model.File, error) {
 	var files []model.File
 	var err error
@@ -68,13 +66,30 @@ func (r *fileRepository) ListByOwnerAndParent(ownerID int, parentID *int) ([]mod
 	return files, err
 }
 
-func (r *fileRepository) UpdateMetadata(id int, newName string, newFolder int) error {
+func (r *fileRepository) UpdateMetadata(id int, newName string, newFolderID int) error {
 	_, err := r.db.Exec(`UPDATE files SET name = $1, folder_id = $2, updated_at = $3 WHERE id = $4`,
-		newName, newFolder, time.Now(), id)
+		newName, newFolderID, time.Now(), id)
 	return err
 }
 
 func (r *fileRepository) Delete(id int) error {
 	_, err := r.db.Exec(`DELETE FROM files WHERE id = $1`, id)
 	return err
+}
+
+// ListByParent возвращает файлы из папки, не фильтруя по owner_id.
+func (r *fileRepository) ListByParent(parentID *int) ([]model.File, error) {
+	var files []model.File
+	var err error
+	query := `SELECT id, folder_id, name, storage_key, size_bytes, owner_id, created_at, updated_at
+	          FROM files WHERE `
+	if parentID == nil {
+		query += "folder_id IS NULL"
+		err = r.db.Select(&files, query)
+	} else {
+		query += "folder_id = $1"
+		err = r.db.Select(&files, query, *parentID)
+	}
+
+	return files, err
 }

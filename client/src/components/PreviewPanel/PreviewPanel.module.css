@@ -1,0 +1,36 @@
+.wrapper {
+    display: flex;
+    flex-direction: column;
+    padding: 18px;
+    height: 80%;
+    background-color: #293241 !important;
+    border-color: #293241 !important;
+    color: #E0FBFC !important;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+}
+
+.iconWrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 32px;
+    color: var(--mantine-color-gray-6);
+}
+
+.details {
+    overflow-y: auto;
+}
+
+.itemName {
+    word-break: break-all;
+}
+
+.actions {
+    justify-content: flex-end;
+}

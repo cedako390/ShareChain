@@ -13,6 +13,12 @@ type FolderService interface {
 	RenameFolder(id int, newName string, ownerID int) error
 	MoveFolder(id int, newParent *int, ownerID int) error
 	DeleteFolder(id, ownerID int) error
+
+	// --- Новые методы для common ---
+	ListCommonFolders(parentID *int) ([]model.Folder, error)
+	CreateCommonFolder(name string, parentID *int, creatorID int) (*model.Folder, error)
+	RenameCommonFolder(id int, newName string) error
+	DeleteCommonFolder(id int) error
 }
 
 type folderService struct {
@@ -21,6 +27,32 @@ type folderService struct {
 
 func NewFolderService(r repository.FolderRepository) FolderService {
 	return &folderService{repo: r}
+}
+
+func (s *folderService) ListCommonFolders(parentID *int) ([]model.Folder, error) {
+	return s.repo.ListCommon(parentID)
+}
+
+func (s *folderService) CreateCommonFolder(name string, parentID *int, creatorID int) (*model.Folder, error) {
+	f := &model.Folder{
+		Name:      name,
+		ParentID:  parentID,
+		IsCommon:  true,
+		OwnerID:   nil, // У общих папок нет владельца
+		CreatedBy: creatorID,
+	}
+	err := s.repo.Create(f)
+	return f, err
+}
+
+func (s *folderService) RenameCommonFolder(id int, newName string) error {
+	// Здесь не нужна проверка владельца, права проверяются в хендлере
+	return s.repo.UpdateName(id, newName)
+}
+
+func (s *folderService) DeleteCommonFolder(id int) error {
+	// Аналогично, права проверяются в хендлере
+	return s.repo.Delete(id)
 }
 
 func (s *folderService) CreatePersonalFolder(name string, parentID *int, ownerID int) (*model.Folder, error) {

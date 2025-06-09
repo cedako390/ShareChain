@@ -12,18 +12,21 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
+// PersonalHandler объединяет логику для папок, файлов и закрепов
 type PersonalHandler struct {
 	folderSvc service.FolderService
 	fileSvc   service.FileService
 	pinSvc    service.PinService
 }
 
+// NewPersonalHandler создаёт новый обработчик
 func NewPersonalHandler(folderSvc service.FolderService, fileSvc service.FileService, pinSvc service.PinService) *PersonalHandler {
 	return &PersonalHandler{folderSvc: folderSvc, fileSvc: fileSvc, pinSvc: pinSvc}
 }
 
 // --- Работа с папками ---
 
+// CreateFolderHandler — POST /api/personal/folders
 func (h *PersonalHandler) CreateFolderHandler(w http.ResponseWriter, r *http.Request) {
 	type req struct {
 		Name     string `json:"name"`
@@ -35,16 +38,20 @@ func (h *PersonalHandler) CreateFolderHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 	ownerID := GetUserIDFromContext(r.Context())
-	f, err := h.folderSvc.CreatePersonalFolder(body.Name, body.ParentID, ownerID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if body.Name == "" {
+		http.Error(w, "name is required", http.StatusBadRequest)
 		return
 	}
+	f, err := h.folderSvc.CreatePersonalFolder(body.Name, body.ParentID, ownerID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(f)
 }
 
 // ListFoldersHandler — GET /api/personal/folders?parent_id={id}
-// This handler now returns both folders and files.
 func (h *PersonalHandler) ListFoldersHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
 	query := r.URL.Query().Get("parent_id")
@@ -55,21 +62,16 @@ func (h *PersonalHandler) ListFoldersHandler(w http.ResponseWriter, r *http.Requ
 			parentID = &pid
 		}
 	}
-
-	// Fetch both folders and files
 	folders, err := h.folderSvc.ListPersonalFolders(ownerID, parentID)
 	if err != nil {
 		http.Error(w, "failed to list folders", http.StatusInternalServerError)
 		return
 	}
-
 	files, err := h.fileSvc.ListFiles(ownerID, parentID)
 	if err != nil {
 		http.Error(w, "failed to list files", http.StatusInternalServerError)
 		return
 	}
-
-	// Combine into a single response
 	resp := struct {
 		Folders []model.Folder `json:"folders"`
 		Files   []model.File   `json:"files"`
@@ -77,11 +79,11 @@ func (h *PersonalHandler) ListFoldersHandler(w http.ResponseWriter, r *http.Requ
 		Folders: folders,
 		Files:   files,
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
 
+// GetFolderHandler — GET /api/personal/folders/{id}
 func (h *PersonalHandler) GetFolderHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
 	id, _ := strconv.Atoi(chi.URLParam(r, "id"))
@@ -93,6 +95,7 @@ func (h *PersonalHandler) GetFolderHandler(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(folder)
 }
 
+// UpdateFolderHandler — PUT /api/personal/folders/{id}
 func (h *PersonalHandler) UpdateFolderHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
 	id, _ := strconv.Atoi(chi.URLParam(r, "id"))
@@ -119,6 +122,7 @@ func (h *PersonalHandler) UpdateFolderHandler(w http.ResponseWriter, r *http.Req
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// DeleteFolderHandler — DELETE /api/personal/folders/{id}
 func (h *PersonalHandler) DeleteFolderHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
 	id, _ := strconv.Atoi(chi.URLParam(r, "id"))
@@ -131,28 +135,30 @@ func (h *PersonalHandler) DeleteFolderHandler(w http.ResponseWriter, r *http.Req
 
 // --- Работа с файлами ---
 
-// ListChildrenHandler is now redundant and can be removed.
-
+// GenerateUploadURLHandler — POST /api/personal/files/upload-url
 func (h *PersonalHandler) GenerateUploadURLHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
-	folderID, _ := strconv.Atoi(chi.URLParam(r, "id"))
-	_, err := h.folderSvc.GetPersonalFolder(folderID, ownerID)
-	if err != nil {
-		http.Error(w, "no access", http.StatusForbidden)
-		return
-	}
 	var body struct {
 		Filename    string `json:"filename"`
 		ContentType string `json:"content_type"`
 		SizeBytes   int64  `json:"size_bytes"`
+		FolderID    *int   `json:"folder_id"` // Nullable for root
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
 	}
-	uploadURL, key, err := h.fileSvc.GenerateUploadURL(r.Context(), folderID, body.Filename, body.ContentType, body.SizeBytes, ownerID)
+	// Verify access to parent folder if it's not root
+	if body.FolderID != nil {
+		_, err := h.folderSvc.GetPersonalFolder(*body.FolderID, ownerID)
+		if err != nil {
+			http.Error(w, "no access to parent folder", http.StatusForbidden)
+			return
+		}
+	}
+	uploadURL, key, err := h.fileSvc.GenerateUploadURL(r.Context(), body.FolderID, body.Filename, body.ContentType, body.SizeBytes, ownerID)
 	if err != nil {
-		log.Println(err)
+		log.Printf("Error generating upload URL: %v", err)
 		http.Error(w, "cannot generate upload URL", http.StatusInternalServerError)
 		return
 	}
@@ -162,31 +168,37 @@ func (h *PersonalHandler) GenerateUploadURLHandler(w http.ResponseWriter, r *htt
 	})
 }
 
+// RegisterUploadedFileHandler — POST /api/personal/files
 func (h *PersonalHandler) RegisterUploadedFileHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
-	folderID, _ := strconv.Atoi(chi.URLParam(r, "id"))
-	_, err := h.folderSvc.GetPersonalFolder(folderID, ownerID)
-	if err != nil {
-		http.Error(w, "no access", http.StatusForbidden)
-		return
-	}
 	var body struct {
 		Name       string `json:"name"`
 		StorageKey string `json:"storage_key"`
 		SizeBytes  int64  `json:"size_bytes"`
+		FolderID   *int   `json:"folder_id"` // Nullable for root
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
 	}
-	f, err := h.fileSvc.RegisterUploadedFile(folderID, body.Name, body.StorageKey, body.SizeBytes, ownerID)
+	// Verify access to parent folder
+	if body.FolderID != nil {
+		_, err := h.folderSvc.GetPersonalFolder(*body.FolderID, ownerID)
+		if err != nil {
+			http.Error(w, "no access to parent folder", http.StatusForbidden)
+			return
+		}
+	}
+	f, err := h.fileSvc.RegisterUploadedFile(body.FolderID, body.Name, body.StorageKey, body.SizeBytes, ownerID)
 	if err != nil {
 		http.Error(w, "cannot register file", http.StatusInternalServerError)
 		return
 	}
+	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(f)
 }
 
+// GenerateDownloadURLHandler — GET /api/personal/files/{id}/download-url
 func (h *PersonalHandler) GenerateDownloadURLHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
 	fileID, _ := strconv.Atoi(chi.URLParam(r, "id"))
@@ -198,6 +210,7 @@ func (h *PersonalHandler) GenerateDownloadURLHandler(w http.ResponseWriter, r *h
 	json.NewEncoder(w).Encode(map[string]string{"download_url": url})
 }
 
+// GetFileMetadataHandler — GET /api/personal/files/{id}
 func (h *PersonalHandler) GetFileMetadataHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
 	fileID, _ := strconv.Atoi(chi.URLParam(r, "id"))
@@ -209,6 +222,7 @@ func (h *PersonalHandler) GetFileMetadataHandler(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(f)
 }
 
+// UpdateFileHandler — PUT /api/personal/files/{id}
 func (h *PersonalHandler) UpdateFileHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
 	fileID, _ := strconv.Atoi(chi.URLParam(r, "id"))
@@ -235,6 +249,7 @@ func (h *PersonalHandler) UpdateFileHandler(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// DeleteFileHandler — DELETE /api/personal/files/{id}
 func (h *PersonalHandler) DeleteFileHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
 	fileID, _ := strconv.Atoi(chi.URLParam(r, "id"))
@@ -246,7 +261,6 @@ func (h *PersonalHandler) DeleteFileHandler(w http.ResponseWriter, r *http.Reque
 }
 
 // --- Работа с «закрепами» (pins) ---
-
 func (h *PersonalHandler) ListPinsHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
 	pins, err := h.pinSvc.ListPins(ownerID)
@@ -256,7 +270,6 @@ func (h *PersonalHandler) ListPinsHandler(w http.ResponseWriter, r *http.Request
 	}
 	json.NewEncoder(w).Encode(pins)
 }
-
 func (h *PersonalHandler) AddPinHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
 	var body struct {
@@ -272,7 +285,6 @@ func (h *PersonalHandler) AddPinHandler(w http.ResponseWriter, r *http.Request) 
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
-
 func (h *PersonalHandler) RemovePinHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
 	folderID, _ := strconv.Atoi(chi.URLParam(r, "folder_id"))

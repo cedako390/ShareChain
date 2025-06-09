@@ -1,23 +1,37 @@
-// Folder.jsx
 import React from 'react';
 import styles from './Folder.module.css';
 import { IconFolder } from '@tabler/icons-react';
-import {useUrlStore} from "../../store/url.js";
+import { useUrlStore } from "../../store/url.js";
 
-export function Folder({ folder }) {
-    const enterPage = useUrlStore((state) => state.enterPage);
+export function Folder({ folder, apiPrefix }) {
+    const enterPage = useUrlStore(state => state.enterPage);
+    const setSelectedItem = useUrlStore(state => state.setSelectedItem);
+    const selectedItem = useUrlStore(state => state.selectedItem);
+    const clearSelectedItem = useUrlStore(state => state.clearSelectedItem);
 
-    const handleFolderClick = () => {
-        // When a folder is clicked, update the global path
+    const isSelected = selectedItem?.ID === folder.ID && !('StorageKey' in selectedItem);
+
+    const handleSingleClick = () => {
+        // Добавляем префикс в сохраняемый объект
+        setSelectedItem({ ...folder, apiPrefix });
+    };
+
+
+    // Двойной клик: войти в папку
+    const handleDoubleClick = () => {
+        clearSelectedItem(); // Сбрасываем выбор перед входом в другую папку
         enterPage({ id: folder.ID, name: folder.Name });
     };
 
     return (
-        <div className={styles.item} onClick={handleFolderClick}>
+        <div
+            className={`${styles.item} ${isSelected ? styles.selected : ''}`}
+            onClick={handleSingleClick}
+            onDoubleClick={handleDoubleClick}
+        >
             <div className={styles.iconWrapper}>
                 <IconFolder className={styles.icon} />
             </div>
-            {/* The folder object from backend has a 'Name' property */}
             <span className={styles.name}>{folder.Name}</span>
         </div>
     );

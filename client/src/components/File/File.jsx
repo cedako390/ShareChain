@@ -9,8 +9,10 @@ import {
     IconHeadphones,
     IconFileZip, IconMovie, IconFileWord, IconFileBroken,
 } from '@tabler/icons-react';
+import {useUrlStore} from "../../store/url.js";
+import axios from "axios";
 
-export function File({ file }) {
+export function File({file, apiPrefix}) {
     // Получаем расширение (после последней точки), приводим к нижнему регистру
     const ext = file.Name.split('.').pop().toLowerCase();
 
@@ -34,10 +36,40 @@ export function File({ file }) {
         ChosenIcon = IconFileBroken;
     }
 
+    const setSelectedItem = useUrlStore(state => state.setSelectedItem);
+    const selectedItem = useUrlStore(state => state.selectedItem);
+    const isSelected = selectedItem?.ID === file.ID && 'StorageKey' in selectedItem;
+
+    const handleSingleClick = () => {
+        // Добавляем префикс в сохраняемый объект для использования в PreviewPanel
+        setSelectedItem({ ...file, apiPrefix });
+    };
+
+    const handleDoubleClick = async () => {
+        try {
+            const response = await axios.get(`${apiPrefix}/files/${file.ID}/download-url`);
+            const downloadUrl = response.data.download_url;
+
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.setAttribute('download', file.Name);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (error) {
+            console.error("Failed to download file:", error);
+            alert("Не удалось скачать файл.");
+        }
+    };
+
     return (
-        <div className={styles.item}>
+        <div
+            className={`${styles.item} ${isSelected ? styles.selected : ''}`}
+            onClick={handleSingleClick}
+            onDoubleClick={handleDoubleClick}
+        >
             <div className={styles.iconWrapper}>
-                <ChosenIcon className={styles.icon} />
+                <IconFile className={styles.icon}/>
             </div>
             <span className={styles.name}>{file.Name}</span>
         </div>

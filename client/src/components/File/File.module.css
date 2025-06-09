@@ -39,3 +39,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+
+.item.selected {
+    background-color: var(--mantine-color-blue-light);
+    border-color: var(--mantine-color-blue-4);
+}

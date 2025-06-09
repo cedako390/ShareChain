@@ -1,0 +1,2668 @@
+Project Path: src
+
+Source Tree:
+
+```txt
+src
+├── components
+│   ├── Dolphin
+│   │   ├── Dolphin.jsx
+│   │   └── Dolphin.module.css
+│   ├── EmojiPicker
+│   │   ├── EmojiPicker.jsx
+│   │   └── EmojiPicker.module.css
+│   ├── File
+│   │   ├── File.jsx
+│   │   └── File.module.css
+│   ├── Folder
+│   │   ├── Folder.jsx
+│   │   └── Folder.module.css
+│   ├── PreviewPanel
+│   │   ├── PreviewPanel.jsx
+│   │   └── PreviewPanel.module.css
+│   ├── ProtectedRoute.jsx
+│   ├── Sidebar
+│   │   ├── Sidebar.jsx
+│   │   └── Sidebar.module.css
+│   └── UserButton
+│       ├── UserButton.jsx
+│       └── UserButton.module.css
+├── context
+│   └── AuthContext.jsx
+├── filtered.json
+├── index.css
+├── layout
+│   ├── DashboardLayout.jsx
+│   ├── DashboardLayout.module.css
+│   └── RootLayout.jsx
+├── main.jsx
+├── page
+│   ├── auth
+│   │   ├── index.jsx
+│   │   └── index.module.css
+│   ├── index.js
+│   ├── personal
+│   │   ├── index.jsx
+│   │   └── index.module.css
+│   └── share
+│       ├── index.jsx
+│       └── index.module.css
+├── postcss.config.cjs
+└── store
+    └── url.js
+
+```
+
+`src/components/Dolphin/Dolphin.jsx`:
+
+```jsx
+import styles from './Dolphin.module.css';
+import { useEffect, useState } from "react";
+import axios from "axios";
+import { Folder } from "../Folder/Folder.jsx";
+import { File } from "../File/File.jsx";
+import { useUrlStore } from "../../store/url.js";
+
+export function Dolphin({ apiPrefix, space }) {
+    const path = useUrlStore((state) => state.path);
+    const version = useUrlStore((state) => state.version);
+    const parentId = path.length > 0 ? path[path.length - 1].id : null;
+    const [folders, setFolders] = useState([]);
+    const [files, setFiles] = useState([]);
+
+    useEffect(() => {
+        let url;
+        if (space === 'common') {
+            // Для общего диска логика запросов другая
+            url = parentId === null
+                ? `${apiPrefix}/folders` // Корневые папки
+                : `${apiPrefix}/folders/${parentId}/children`; // Содержимое подпапки
+        } else {
+            // Для личного диска
+            url = parentId === null
+                ? `${apiPrefix}/folders`
+                : `${apiPrefix}/folders?parent_id=${parentId}`;
+        }
+
+        axios.get(url).then((res) => {
+            setFolders(res.data.folders || []);
+            setFiles(res.data.files || []);
+        }).catch(err => {
+            console.error("Failed to fetch directory contents:", err);
+            setFolders([]);
+            setFiles([]);
+        });
+    }, [parentId, version, apiPrefix, space]);
+
+    return (
+        <div className={styles.wrapper}>
+            {folders.map((folder) => (
+                <Folder folder={folder} key={`folder-${folder.ID}`} apiPrefix={apiPrefix} />
+            ))}
+            {files.map((file) => (
+                <File file={file} key={`file-${file.ID}`} apiPrefix={apiPrefix} />
+            ))}
+        </div>
+    );
+}
+```
+
+`src/components/Dolphin/Dolphin.module.css`:
+
+```css
+.wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+```
+
+`src/components/EmojiPicker/EmojiPicker.jsx`:
+
+```jsx
+// EmojiPicker.jsx
+import React, { useState, useRef, useEffect } from "react";
+import { Emoji } from "react-apple-emojis";
+import emojiData from "../../filtered.json";
+import styles from "./EmojiPicker.module.css";
+
+export function EmojiPicker() {
+    const [selected, setSelected] = useState(null);
+    const [open, setOpen] = useState(false);
+    const ref = useRef(null);
+
+    useEffect(() => {
+        function handleClickOutside(e) {
+            if (ref.current && !ref.current.contains(e.target)) {
+                setOpen(false);
+            }
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
+    return (
+        <div className={styles.wrapper} ref={ref}>
+            {/* Триггер */}
+            <div
+                className={styles.trigger}
+                onClick={() => setOpen(prev => !prev)}
+            >
+                {selected ? (
+                    <Emoji name={selected} width={24} />
+                ) : (
+                    <Emoji name="laptop" width={24} />
+                )}
+            </div>
+
+            {/* Попап со списком эмодзи */}
+            {open && (
+                <div className={styles.popup}>
+                    <div className={styles.emojiGrid}>
+                        {Object.keys(emojiData).map((name) => (
+                            <div
+                                key={name}
+                                className={styles.emojiItem}
+                                onClick={() => {
+                                    setSelected(name);
+                                    setOpen(false);
+                                }}
+                            >
+                                <Emoji name={name} width={24} />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+```
+
+`src/components/EmojiPicker/EmojiPicker.module.css`:
+
+```css
+/* EmojiPicker.module.css */
+.wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.trigger {
+    width: 40px;
+    height: 40px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.trigger:hover {
+    border-color: #888;
+}
+
+.popup {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    width: 360px;
+    max-height: 290px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+}
+
+.emojiGrid {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.emojiItem {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 4px;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    border-radius: 4px;
+}
+
+.emojiItem:hover {
+    background: #f0f0f0;
+    transform: scale(1.1);
+}
+
+```
+
+`src/components/File/File.jsx`:
+
+```jsx
+// File.jsx
+import React from 'react';
+import styles from './File.module.css';
+import {
+    IconFile,
+    IconPhoto,
+    IconFileTypePdf,
+    IconFileTypeXls,
+    IconHeadphones,
+    IconFileZip, IconMovie, IconFileWord, IconFileBroken,
+} from '@tabler/icons-react';
+import {useUrlStore} from "../../store/url.js";
+import axios from "axios";
+
+export function File({file, apiPrefix}) {
+    // Получаем расширение (после последней точки), приводим к нижнему регистру
+    const ext = file.Name.split('.').pop().toLowerCase();
+
+    // Выбираем иконку по типу расширения
+    let ChosenIcon = IconFile;
+    if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'bmp', 'webp'].includes(ext)) {
+        ChosenIcon = IconPhoto;
+    } else if (['pdf'].includes(ext)) {
+        ChosenIcon = IconFileTypePdf;
+    } else if (['xls', 'xlsx', 'csv'].includes(ext)) {
+        ChosenIcon = IconFileTypeXls;
+    } else if (['mp3', 'wav', 'ogg', 'flac'].includes(ext)) {
+        ChosenIcon = IconHeadphones;
+    } else if (['mp4', 'mkv', 'avi', 'mov', 'webm'].includes(ext)) {
+        ChosenIcon = IconMovie;
+    } else if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
+        ChosenIcon = IconFileZip;
+    } else if (['doc', 'docx', 'rtf', 'odt', 'docm', 'dotx'].includes(ext)) {
+        ChosenIcon = IconFileWord;
+    } else if ([].includes(ext)) {
+        ChosenIcon = IconFileBroken;
+    }
+
+    const setSelectedItem = useUrlStore(state => state.setSelectedItem);
+    const selectedItem = useUrlStore(state => state.selectedItem);
+    const isSelected = selectedItem?.ID === file.ID && 'StorageKey' in selectedItem;
+
+    const handleSingleClick = () => {
+        // Добавляем префикс в сохраняемый объект для использования в PreviewPanel
+        setSelectedItem({ ...file, apiPrefix });
+    };
+
+    const handleDoubleClick = async () => {
+        try {
+            const response = await axios.get(`${apiPrefix}/files/${file.ID}/download-url`);
+            const downloadUrl = response.data.download_url;
+
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.setAttribute('download', file.Name);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        } catch (error) {
+            console.error("Failed to download file:", error);
+            alert("Не удалось скачать файл.");
+        }
+    };
+
+    return (
+        <div
+            className={`${styles.item} ${isSelected ? styles.selected : ''}`}
+            onClick={handleSingleClick}
+            onDoubleClick={handleDoubleClick}
+        >
+            <div className={styles.iconWrapper}>
+                <IconFile className={styles.icon}/>
+            </div>
+            <span className={styles.name}>{file.Name}</span>
+        </div>
+    );
+}
+
+```
+
+`src/components/File/File.module.css`:
+
+```css
+/* File.module.css */
+.item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background-color: #293241;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.item:hover {
+    background-color: #343C4B;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.iconWrapper {
+    width: 32px;
+    height: 32px;
+    background-color: #EE6C4D;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon {
+    color: #E0FBFC;
+    width: 20px;
+    height: 20px;
+}
+
+.name {
+    font-size: 16px;
+    font-weight: 500;
+    color: #E0FBFC;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+
+.item.selected {
+    background-color: var(--mantine-color-blue-light);
+    border-color: var(--mantine-color-blue-4);
+}
+```
+
+`src/components/Folder/Folder.jsx`:
+
+```jsx
+import React from 'react';
+import styles from './Folder.module.css';
+import { IconFolder } from '@tabler/icons-react';
+import { useUrlStore } from "../../store/url.js";
+
+export function Folder({ folder, apiPrefix }) {
+    const enterPage = useUrlStore(state => state.enterPage);
+    const setSelectedItem = useUrlStore(state => state.setSelectedItem);
+    const selectedItem = useUrlStore(state => state.selectedItem);
+    const clearSelectedItem = useUrlStore(state => state.clearSelectedItem);
+
+    const isSelected = selectedItem?.ID === folder.ID && !('StorageKey' in selectedItem);
+
+    const handleSingleClick = () => {
+        // Добавляем префикс в сохраняемый объект
+        setSelectedItem({ ...folder, apiPrefix });
+    };
+
+
+    // Двойной клик: войти в папку
+    const handleDoubleClick = () => {
+        clearSelectedItem(); // Сбрасываем выбор перед входом в другую папку
+        enterPage({ id: folder.ID, name: folder.Name });
+    };
+
+    return (
+        <div
+            className={`${styles.item} ${isSelected ? styles.selected : ''}`}
+            onClick={handleSingleClick}
+            onDoubleClick={handleDoubleClick}
+        >
+            <div className={styles.iconWrapper}>
+                <IconFolder className={styles.icon} />
+            </div>
+            <span className={styles.name}>{folder.Name}</span>
+        </div>
+    );
+}
+```
+
+`src/components/Folder/Folder.module.css`:
+
+```css
+/* Folder.module.css */
+.item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background-color: #293241;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.item:hover {
+    background-color: #343C4B;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.iconWrapper {
+    width: 32px;
+    height: 32px;
+    background-color: #EE6C4D;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon {
+    color: #E0FBFC;
+    width: 20px;
+    height: 20px;
+}
+
+.name {
+    font-size: 16px;
+    font-weight: 500;
+    color: #E0FBFC;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.item.selected {
+    background-color: var(--mantine-color-blue-light);
+    border-color: var(--mantine-color-blue-4);
+}
+```
+
+`src/components/PreviewPanel/PreviewPanel.jsx`:
+
+```jsx
+import React, { useState, useEffect } from 'react';
+import { useUrlStore } from '../../store/url.js';
+import styles from './PreviewPanel.module.css';
+import {
+    IconFile,
+    IconFolder,
+    IconPencil,
+    IconTrash,
+    IconX,
+    IconCheck
+} from '@tabler/icons-react';
+import {
+    Paper,
+    Text,
+    Title,
+    CloseButton,
+    ActionIcon,
+    Group,
+    TextInput
+} from '@mantine/core';
+import axios from 'axios';
+
+// Хелпер для форматирования байтов
+function formatBytes(bytes, decimals = 2) {
+    if (!+bytes) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+}
+
+export function PreviewPanel() {
+    const selectedItem = useUrlStore((state) => state.selectedItem);
+    const clearSelectedItem = useUrlStore((state) => state.clearSelectedItem);
+    const triggerRefresh = useUrlStore((state) => state.triggerRefresh);
+
+    const [isRenaming, setIsRenaming] = useState(false);
+    const [newName, setNewName] = useState('');
+
+    // Сбрасываем состояние при смене выбранного элемента
+    useEffect(() => {
+        if (selectedItem) {
+            setNewName(selectedItem.Name);
+        }
+        setIsRenaming(false);
+    }, [selectedItem]);
+
+    if (!selectedItem) {
+        return (
+            <Paper withBorder className={styles.wrapper} style={{ justifyContent: 'center', alignItems: 'center' }}>
+                <Text c="dimmed">Выберите файл для просмотра информации</Text>
+            </Paper>
+        );
+    }
+
+    const isFile = 'StorageKey' in selectedItem;
+    const itemType = isFile ? 'files' : 'folders';
+    const apiPrefix = selectedItem.apiPrefix;
+    const canWrite = Boolean(apiPrefix);
+
+    const handleRename = async () => {
+        if (!newName.trim() || newName === selectedItem.Name || !apiPrefix) {
+            setIsRenaming(false);
+            return;
+        }
+
+        try {
+            await axios.put(`${apiPrefix}/${itemType}/${selectedItem.ID}`, {
+                name: newName.trim(),
+            });
+            alert('Имя успешно изменено!');
+            clearSelectedItem();
+            triggerRefresh();
+        } catch (error) {
+            console.error(`Failed to rename ${itemType}:`, error);
+            alert('Не удалось изменить имя. Возможно, у вас нет прав.');
+        } finally {
+            setIsRenaming(false);
+        }
+    };
+
+    const handleDelete = async () => {
+        if (!apiPrefix) return;
+        const confirmation = window.confirm(`Вы уверены, что хотите удалить "${selectedItem.Name}"?`);
+        if (!confirmation) return;
+
+        try {
+            await axios.delete(`${apiPrefix}/${itemType}/${selectedItem.ID}`);
+            alert('Элемент успешно удален!');
+            clearSelectedItem();
+            triggerRefresh();
+        } catch (error) {
+            console.error(`Failed to delete ${itemType}:`, error);
+            alert('Не удалось удалить элемент. Возможно, у вас нет прав.');
+        }
+    };
+
+    return (
+        <Paper withBorder className={styles.wrapper}>
+            <div className={styles.header}>
+                <Title order={4}>Свойства</Title>
+                <CloseButton onClick={clearSelectedItem} title="Закрыть панель" />
+            </div>
+
+            <div className={styles.iconWrapper}>
+                {isFile ? <IconFile size={48} /> : <IconFolder size={48} />}
+            </div>
+
+            <div className={styles.details}>
+                <Text size="sm" c="dimmed">Имя</Text>
+
+                {isRenaming ? (
+                    <Group gap="xs" mt={4}>
+                        <TextInput
+                            value={newName}
+                            onChange={(e) => setNewName(e.currentTarget.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleRename()}
+                            style={{ flex: 1 }}
+                            autoFocus
+                        />
+                        <ActionIcon variant="light" color="green" onClick={handleRename}><IconCheck size={18} /></ActionIcon>
+                        <ActionIcon variant="light" color="red" onClick={() => setIsRenaming(false)}><IconX size={18} /></ActionIcon>
+                    </Group>
+                ) : (
+                    <>
+                        <Text className={styles.itemName} Fw={500}>{selectedItem.Name}</Text>
+                        {canWrite && (
+                            <Group gap="xs" mt="md" className={styles.actions}>
+                                <ActionIcon variant="default" size="lg" aria-label="Rename" onClick={() => setIsRenaming(true)}>
+                                    <IconPencil size={18} />
+                                </ActionIcon>
+                                <ActionIcon variant="default" size="lg" color="red" aria-label="Delete" onClick={handleDelete}>
+                                    <IconTrash size={18} />
+                                </ActionIcon>
+                            </Group>
+                        )}
+                    </>
+                )}
+
+                <Text size="sm" c="dimmed" mt="md">Тип</Text>
+                <Text Fw={500}>{isFile ? 'Файл' : 'Папка'}</Text>
+
+                {isFile && (
+                    <>
+                        <Text size="sm" c="dimmed" mt="md">Размер</Text>
+                        <Text Fw={500}>{formatBytes(selectedItem.SizeBytes)}</Text>
+                    </>
+                )}
+
+                <Text size="sm" c="dimmed" mt="md">Дата создания</Text>
+                <Text Fw={500}>{new Date(selectedItem.CreatedAt).toLocaleString()}</Text>
+            </div>
+        </Paper>
+    );
+}
+
+```
+
+`src/components/PreviewPanel/PreviewPanel.module.css`:
+
+```css
+.wrapper {
+    display: flex;
+    flex-direction: column;
+    padding: 18px;
+    height: 80%;
+    background-color: #293241 !important;
+    border-color: #293241 !important;
+    color: #E0FBFC !important;
+}
+
+.header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 32px;
+}
+
+.iconWrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 32px;
+    color: var(--mantine-color-gray-6);
+}
+
+.details {
+    overflow-y: auto;
+}
+
+.itemName {
+    word-break: break-all;
+}
+
+.actions {
+    justify-content: flex-end;
+}
+```
+
+`src/components/ProtectedRoute.jsx`:
+
+```jsx
+// src/components/ProtectedRoute.jsx
+import React from 'react';
+import { Navigate, Outlet } from 'react-router';
+import { useAuth } from '../context/AuthContext';
+
+export default function ProtectedRoute() {
+    const { isAuthenticated } = useAuth();
+
+    // Если не аутентифицирован — редиректим на /login
+    if (!isAuthenticated) {
+        return <Navigate to="/login" replace />;
+    }
+
+    // Иначе рендерим «вложенные» маршруты (Outlet)
+    return <Outlet />;
+}
+
+```
+
+`src/components/Sidebar/Sidebar.jsx`:
+
+```jsx
+// src/components/Sidebar/Sidebar.jsx
+import React from 'react';
+import {
+    IconCategory,
+    IconDeviceGamepad3,
+    IconLogout,
+    IconSearch,
+    IconSmartHome
+} from '@tabler/icons-react';
+import { Badge, UnstyledButton } from '@mantine/core';
+import classes from './Sidebar.module.css';
+import { UserButton } from "../UserButton/UserButton.jsx";
+import { Spotlight, spotlight } from '@mantine/spotlight';
+import { IconHome, IconDashboard, IconFileText } from '@tabler/icons-react';
+import { useAuth } from "../../context/AuthContext.jsx";
+import {Emoji} from "react-apple-emojis";
+import {EmojiPicker} from "../EmojiPicker/EmojiPicker.jsx";
+import {useNavigate} from "react-router";
+
+// Основные ссылки
+const links = [
+    { icon: IconSmartHome, label: 'Личный диск', url: '/' },
+    { icon: IconCategory, label: 'Общий диск',  url: '/share' },
+];
+
+// Закреплённые папки (переименовали из `collections`)
+const pinnedFolders = [
+    { icon: IconSmartHome, label: 'Sales' },
+    { icon: IconSmartHome, label: 'Marketing' },
+    { icon: IconSmartHome, label: 'Finance' },
+    { icon: IconSmartHome, label: 'HR' },
+];
+
+const actions = [
+    {
+        id: 'home',
+        label: 'Home',
+        description: 'Перейти на главную страницу',
+        onClick: () => console.log('Home'),
+        leftSection: <IconHome size={20} stroke={1.5} />,
+    },
+    {
+        id: 'dashboard',
+        label: 'Dashboard',
+        description: 'Обзор состояния системы',
+        onClick: () => console.log('Dashboard'),
+        leftSection: <IconDashboard size={20} stroke={1.5} />,
+    },
+    {
+        id: 'documentation',
+        label: 'Documentation',
+        description: 'Перейти к документации',
+        onClick: () => console.log('Documentation'),
+        leftSection: <IconFileText size={20} stroke={1.5} />,
+    },
+];
+
+export function Sidebar() {
+    const { logout } = useAuth();
+    const navigate = useNavigate();
+
+    // Рендерим основные ссылки
+    const mainLinks = links.map((link) => (
+        <UnstyledButton onClick={() => navigate(link.url)} key={link.label} className={classes.mainLink}>
+            <div className={classes.mainLinkInner}>
+                <link.icon size={20} className={classes.mainLinkIcon} stroke={1.5} />
+                <span className={classes.linkText}>{link.label}</span>
+            </div>
+            {link.notifications && (
+                <Badge size="xs" variant="filled" className={classes.mainLinkBadge}>
+                    {link.notifications}
+                </Badge>
+            )}
+        </UnstyledButton>
+    ));
+
+    return (
+        <nav className={classes.navbar}>
+            {/* Логотип */}
+            <div className={classes.logo}>
+                <IconDeviceGamepad3 size={28} stroke={1.5} />
+                <span className={classes.logoText}>ShareChain</span>
+            </div>
+
+            {/* Поиск-спотлайт */}
+            <div onClick={spotlight.open} className={classes.fakeSearch}>
+                <IconSearch size={16} stroke={1.5} />
+                <span className={classes.searchText}>Поиск...</span>
+            </div>
+            <Spotlight
+                actions={actions}
+                nothingFound="Ничего не найдено"
+                highlightQuery
+                searchProps={{
+                    leftSection: <IconSearch size={18} stroke={1.5} />,
+                    placeholder: 'Поиск...',
+                }}
+            />
+
+            {/* ======== Основные разделы ======== */}
+            <div className={classes.section}>
+                <div className={classes.sectionTitle}>Основные разделы</div>
+                <div className={classes.mainLinks}>{mainLinks}</div>
+            </div>
+            {/* ======== Закреплённые папки ======== */}
+            <div className={classes.section}>
+                <div className={classes.sectionTitle}>Закреплённые папки</div>
+                <div className={classes.pinnedList}>
+                    {pinnedFolders.map((folder) => (
+                        <UnstyledButton key={folder.label} className={classes.pinnedItem}>
+                            <div className={classes.pinnedInner}>
+                                <Emoji name={"laptop"} width={18}/>
+                                <span className={classes.pinnedLabel}>{folder.label}</span>
+                            </div>
+                        </UnstyledButton>
+                    ))}
+                </div>
+            </div>
+
+            {/* Отталкиваем всё вниз */}
+            <div className={classes.spacer} />
+
+            {/* Footer: профиль + выход */}
+            <div className={classes.footer}>
+                <UserButton />
+                <UnstyledButton onClick={logout} className={classes.logout}>
+                    <IconLogout size={20} stroke={1.5} />
+                    <span className={classes.logoutText}>Выйти</span>
+                </UnstyledButton>
+            </div>
+        </nav>
+    );
+}
+
+```
+
+`src/components/Sidebar/Sidebar.module.css`:
+
+```css
+/* src/components/Sidebar/Sidebar.module.css */
+
+.navbar {
+    width: 260px;
+    height: 100vh;
+    padding: 1rem;
+    background-color: #1F2937;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    color: #E5E7EB;
+    font-family: 'Inter', sans-serif;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 1rem;
+}
+
+.logoText {
+    color: #FFC947;
+    font-weight: 700;
+    font-size: 1.25rem;
+    line-height: 1;
+}
+
+.fakeSearch {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background-color: #374151;
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    margin-bottom: 1rem;
+}
+
+.fakeSearch:hover {
+    background-color: #4B5563;
+}
+
+.searchText {
+    color: #9CA3AF;
+    font-size: 0.875rem;
+}
+
+.section {
+    margin-top: 1rem;
+}
+
+.sectionTitle {
+    font-size: 0.75rem;
+    color: #9CA3AF;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+    padding-left: 0.25rem;
+    letter-spacing: 0.5px;
+}
+
+/* ===== Основные ссылки ===== */
+.mainLinks,
+.pinnedList {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.mainLink {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background-color: transparent;
+    padding: 4px 8px !important;
+    border-radius: 4px;
+    transition: background-color 0.15s;
+}
+
+.mainLink:hover {
+    background-color: #374151;
+}
+
+.mainLinkInner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.mainLinkIcon {
+    color: #9CA3AF;
+    transition: color 0.15s;
+}
+
+.mainLink:hover .mainLinkIcon {
+    color: #FFC947;
+}
+
+.linkText {
+    font-size: 0.9rem;
+    color: #E5E7EB;
+}
+
+.mainLinkBadge {
+    background-color: #DC2626;
+    color: #E5E7EB;
+    font-size: 0.65rem;
+}
+
+/* ===== Закреплённые папки ===== */
+.pinnedItem {
+    display: flex;
+    align-items: center;
+    background-color: transparent;
+    padding: 4px 8px !important;
+    border-radius: 4px;
+    transition: background-color 0.15s;
+}
+
+.pinnedItem:hover {
+    background-color: #4B5563;
+}
+
+.pinnedInner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.pinnedIcon {
+    color: #9CA3AF;
+    transition: color 0.15s;
+}
+
+.pinnedItem:hover .pinnedIcon {
+    color: #FFC947;
+}
+
+.pinnedLabel {
+    font-size: 0.9rem;
+    color: #E5E7EB;
+}
+
+/* ===== Spacer ===== */
+.spacer {
+    flex-grow: 1;
+}
+
+/* ===== Footer ===== */
+.footer {
+    padding-top: 1rem;
+    border-top: 1px solid #374151;
+}
+
+.logout {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    /*justify-content: center;*/
+    margin-top: 0.75rem;
+    background-color: #DC2626;
+    border-radius: 4px;
+    padding: 0.5rem 0.75rem !important;
+    transition: background-color 0.15s;
+}
+
+.logout:hover {
+    background-color: #B91C1C;
+}
+
+.logoutText {
+    color: #F3F4F6;
+    font-size: 0.95rem;
+    font-weight: 500;
+}
+
+```
+
+`src/components/UserButton/UserButton.jsx`:
+
+```jsx
+import { IconChevronRight } from '@tabler/icons-react';
+import { Avatar, Group, Text, UnstyledButton } from '@mantine/core';
+import classes from './UserButton.module.css';
+import {useAuth} from "../../context/AuthContext.jsx";
+
+export function UserButton() {
+    const { user} = useAuth();
+    return (
+        <UnstyledButton className={classes.user}>
+            <Group gap="sm" justify="space-between">
+                <Group gap="sm">
+                    <Avatar
+                        src="https://raw.githubusercontent.com/mantinedev/mantine/master/.demo/avatars/avatar-4.png"
+                        radius="xl"
+                        size="md"
+                    />
+                    <div className={classes.userInfo}>
+                        <Text size="sm" className={classes.name}>
+                            {user.name}
+                        </Text>
+                        <Text c="dimmed" size="xs" className={classes.email}>
+                            @{user.username}
+                        </Text>
+                    </div>
+                </Group>
+                <IconChevronRight size={16} stroke={1.5} />
+            </Group>
+        </UnstyledButton>
+    );
+}
+
+```
+
+`src/components/UserButton/UserButton.module.css`:
+
+```css
+.user {
+    width: 100%;
+    padding: 8px !important;
+    border-radius: 8px;
+    transition: background-color 0.2s ease;
+    background-color: transparent;
+    color: #E0FBFC;
+}
+
+.user:hover {
+    background-color: #343C4B;
+}
+
+.userInfo {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    line-height: 1.2;
+}
+
+.name {
+    width: 120px;
+    color: #E0FBFC !important;
+
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.email {
+    color: #aab8c2 !important;
+}
+
+```
+
+`src/context/AuthContext.jsx`:
+
+```jsx
+// src/context/AuthContext.jsx
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useNavigate } from 'react-router';
+import axios from 'axios';
+
+// Создаём контекст
+const AuthContext = createContext(null);
+
+// Хук‐обёртка для удобного доступа
+export function useAuth() {
+    return useContext(AuthContext);
+}
+
+export function AuthProvider({ children }) {
+    const navigate = useNavigate();
+    const [token, setToken] = useState(null);
+    const [user, setUser] = useState(null);
+    const [loading, setLoading] = useState(true);
+
+    // При монтировании проверим localStorage и, если есть токен, сразу запрашиваем /me
+    useEffect(() => {
+        const savedToken = localStorage.getItem('jwt_token');
+        if (savedToken) {
+            setToken(savedToken);
+            axios
+                .get('/me', {
+                    headers: { Authorization: `Bearer ${savedToken}` },
+                })
+                .then((res) => {
+                    setUser(res.data);
+                })
+                .catch(() => {
+                    // Если /me вернул ошибку (например, токен просрочен), сбрасываем
+                    localStorage.removeItem('jwt_token');
+                    setToken(null);
+                    setUser(null);
+                })
+                .finally(() => {
+                    setLoading(false);
+                });
+        } else {
+            setLoading(false);
+        }
+    }, []);
+
+    // Функция логина: вызывает /login, получает JWT, сохраняет, а затем запрашивает /me
+    const login = async (username, password) => {
+        try {
+            const res = await axios.post(
+                '/login',
+                { username, password },
+                { headers: { 'Content-Type': 'application/json' } }
+            );
+            const data = res.data;
+            if (!data || !data.token) {
+                throw new Error('Не получили токен');
+            }
+
+            localStorage.setItem('jwt_token', data.token);
+            setToken(data.token);
+
+            // Запрашиваем /me для полной информации о пользователе
+            const meRes = await axios.get('/me', {
+                headers: { Authorization: `Bearer ${data.token}` },
+            });
+            setUser(meRes.data);
+
+            navigate('/');
+        } catch (err) {
+            throw new Error('invalid username or password');
+        }
+    };
+
+    // Функция разлогина
+    const logout = () => {
+        localStorage.removeItem('jwt_token');
+        setToken(null);
+        setUser(null);
+        navigate('/login');
+    };
+
+    const value = {
+        token,
+        user,
+        login,
+        logout,
+        isAuthenticated: !!token,
+    };
+
+    if (loading) {
+        return null;
+    }
+
+    return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+```
+
+`src/filtered.json`:
+
+```json
+{
+  "laptop": "https://em-content.zobj.net/source/apple/419/laptop_1f4bb.png",
+  "desktop-computer": "https://em-content.zobj.net/source/apple/419/desktop-computer_1f5a5-fe0f.png",
+  "printer": "https://em-content.zobj.net/source/apple/419/printer_1f5a8-fe0f.png",
+  "keyboard": "https://em-content.zobj.net/source/apple/419/keyboard_2328-fe0f.png",
+  "computer-mouse": "https://em-content.zobj.net/source/apple/419/computer-mouse_1f5b1-fe0f.png",
+  "trackball": "https://em-content.zobj.net/source/apple/419/trackball_1f5b2-fe0f.png",
+  "computer-disk": "https://em-content.zobj.net/source/apple/419/computer-disk_1f4bd.png",
+  "floppy-disk": "https://em-content.zobj.net/source/apple/419/floppy-disk_1f4be.png",
+  "optical-disk": "https://em-content.zobj.net/source/apple/419/optical-disk_1f4bf.png",
+  "dvd": "https://em-content.zobj.net/source/apple/419/dvd_1f4c0.png",
+  "abacus": "https://em-content.zobj.net/source/apple/419/abacus_1f9ee.png",
+  "movie-camera": "https://em-content.zobj.net/source/apple/419/movie-camera_1f3a5.png",
+  "film-frames": "https://em-content.zobj.net/source/apple/419/film-frames_1f39e-fe0f.png",
+  "film-projector": "https://em-content.zobj.net/source/apple/419/film-projector_1f4fd-fe0f.png",
+  "clapper-board": "https://em-content.zobj.net/source/apple/419/clapper-board_1f3ac.png",
+  "television": "https://em-content.zobj.net/source/apple/419/television_1f4fa.png",
+  "camera": "https://em-content.zobj.net/source/apple/419/camera_1f4f7.png",
+  "camera-with-flash": "https://em-content.zobj.net/source/apple/419/camera-with-flash_1f4f8.png",
+  "video-camera": "https://em-content.zobj.net/source/apple/419/video-camera_1f4f9.png",
+  "videocassette": "https://em-content.zobj.net/source/apple/419/videocassette_1f4fc.png",
+  "magnifying-glass-tilted-left": "https://em-content.zobj.net/source/apple/419/magnifying-glass-tilted-left_1f50d.png",
+  "magnifying-glass-tilted-right": "https://em-content.zobj.net/source/apple/419/magnifying-glass-tilted-right_1f50e.png",
+  "candle": "https://em-content.zobj.net/source/apple/419/candle_1f56f-fe0f.png",
+  "light-bulb": "https://em-content.zobj.net/source/apple/419/light-bulb_1f4a1.png",
+  "flashlight": "https://em-content.zobj.net/source/apple/419/flashlight_1f526.png",
+  "red-paper-lantern": "https://em-content.zobj.net/source/apple/419/red-paper-lantern_1f3ee.png",
+  "diya-lamp": "https://em-content.zobj.net/source/apple/419/diya-lamp_1fa94.png",
+  "notebook-with-decorative-cover": "https://em-content.zobj.net/source/apple/419/notebook-with-decorative-cover_1f4d4.png",
+  "open-book": "https://em-content.zobj.net/source/apple/419/open-book_1f4d6.png",
+  "green-book": "https://em-content.zobj.net/source/apple/419/green-book_1f4d7.png",
+  "blue-book": "https://em-content.zobj.net/source/apple/419/blue-book_1f4d8.png",
+  "orange-book": "https://em-content.zobj.net/source/apple/419/orange-book_1f4d9.png",
+  "books": "https://em-content.zobj.net/source/apple/419/books_1f4da.png",
+  "notebook": "https://em-content.zobj.net/source/apple/419/notebook_1f4d3.png",
+  "closed-book": "https://em-content.zobj.net/source/apple/419/closed-book_1f4d5.png",
+  "ledger": "https://em-content.zobj.net/source/apple/419/ledger_1f4d2.png",
+  "page-with-curl": "https://em-content.zobj.net/source/apple/419/page-with-curl_1f4c3.png",
+  "scroll": "https://em-content.zobj.net/source/apple/419/scroll_1f4dc.png",
+  "page-facing-up": "https://em-content.zobj.net/source/apple/419/page-facing-up_1f4c4.png",
+  "newspaper": "https://em-content.zobj.net/source/apple/419/newspaper_1f4f0.png",
+  "rolled-up-newspaper": "https://em-content.zobj.net/source/apple/419/rolled-up-newspaper_1f5de-fe0f.png",
+  "bookmark-tabs": "https://em-content.zobj.net/source/apple/419/bookmark-tabs_1f4d1.png",
+  "bookmark": "https://em-content.zobj.net/source/apple/419/bookmark_1f516.png",
+  "label": "https://em-content.zobj.net/source/apple/419/label_1f3f7-fe0f.png",
+  "money-bag": "https://em-content.zobj.net/source/apple/419/money-bag_1f4b0.png",
+  "coin": "https://em-content.zobj.net/source/apple/419/coin_1fa99.png",
+  "yen-banknote": "https://em-content.zobj.net/source/apple/419/yen-banknote_1f4b4.png",
+  "dollar-banknote": "https://em-content.zobj.net/source/apple/419/dollar-banknote_1f4b5.png",
+  "euro-banknote": "https://em-content.zobj.net/source/apple/419/euro-banknote_1f4b6.png",
+  "pound-banknote": "https://em-content.zobj.net/source/apple/419/pound-banknote_1f4b7.png",
+  "money-with-wings": "https://em-content.zobj.net/source/apple/419/money-with-wings_1f4b8.png",
+  "credit-card": "https://em-content.zobj.net/source/apple/419/credit-card_1f4b3.png",
+  "receipt": "https://em-content.zobj.net/source/apple/419/receipt_1f9fe.png",
+  "chart-increasing-with-yen": "https://em-content.zobj.net/source/apple/419/chart-increasing-with-yen_1f4b9.png",
+  "envelope": "https://em-content.zobj.net/source/apple/419/envelope_2709-fe0f.png",
+  "e-mail": "https://em-content.zobj.net/source/apple/419/e-mail_1f4e7.png",
+  "incoming-envelope": "https://em-content.zobj.net/source/apple/419/incoming-envelope_1f4e8.png",
+  "envelope-with-arrow": "https://em-content.zobj.net/source/apple/419/envelope-with-arrow_1f4e9.png",
+  "outbox-tray": "https://em-content.zobj.net/source/apple/419/outbox-tray_1f4e4.png",
+  "inbox-tray": "https://em-content.zobj.net/source/apple/419/inbox-tray_1f4e5.png",
+  "package": "https://em-content.zobj.net/source/apple/419/package_1f4e6.png",
+  "closed-mailbox-with-raised-flag": "https://em-content.zobj.net/source/apple/419/closed-mailbox-with-raised-flag_1f4eb.png",
+  "closed-mailbox-with-lowered-flag": "https://em-content.zobj.net/source/apple/419/closed-mailbox-with-lowered-flag_1f4ea.png",
+  "open-mailbox-with-raised-flag": "https://em-content.zobj.net/source/apple/419/open-mailbox-with-raised-flag_1f4ec.png",
+  "open-mailbox-with-lowered-flag": "https://em-content.zobj.net/source/apple/419/open-mailbox-with-lowered-flag_1f4ed.png",
+  "postbox": "https://em-content.zobj.net/source/apple/419/postbox_1f4ee.png",
+  "ballot-box-with-ballot": "https://em-content.zobj.net/source/apple/419/ballot-box-with-ballot_1f5f3-fe0f.png",
+  "pencil": "https://em-content.zobj.net/source/apple/419/pencil_270f-fe0f.png",
+  "black-nib": "https://em-content.zobj.net/source/apple/419/black-nib_2712-fe0f.png",
+  "fountain-pen": "https://em-content.zobj.net/source/apple/419/fountain-pen_1f58b-fe0f.png",
+  "pen": "https://em-content.zobj.net/source/apple/419/pen_1f58a-fe0f.png",
+  "paintbrush": "https://em-content.zobj.net/source/apple/419/paintbrush_1f58c-fe0f.png",
+  "crayon": "https://em-content.zobj.net/source/apple/419/crayon_1f58d-fe0f.png",
+  "memo": "https://em-content.zobj.net/source/apple/419/memo_1f4dd.png",
+  "briefcase": "https://em-content.zobj.net/source/apple/419/briefcase_1f4bc.png",
+  "file-folder": "https://em-content.zobj.net/source/apple/419/file-folder_1f4c1.png",
+  "open-file-folder": "https://em-content.zobj.net/source/apple/419/open-file-folder_1f4c2.png",
+  "card-index-dividers": "https://em-content.zobj.net/source/apple/419/card-index-dividers_1f5c2-fe0f.png",
+  "calendar": "https://em-content.zobj.net/source/apple/419/calendar_1f4c5.png",
+  "tear-off-calendar": "https://em-content.zobj.net/source/apple/419/tear-off-calendar_1f4c6.png",
+  "spiral-notepad": "https://em-content.zobj.net/source/apple/419/spiral-notepad_1f5d2-fe0f.png",
+  "spiral-calendar": "https://em-content.zobj.net/source/apple/419/spiral-calendar_1f5d3-fe0f.png",
+  "card-index": "https://em-content.zobj.net/source/apple/419/card-index_1f4c7.png",
+  "chart-increasing": "https://em-content.zobj.net/source/apple/419/chart-increasing_1f4c8.png",
+  "chart-decreasing": "https://em-content.zobj.net/source/apple/419/chart-decreasing_1f4c9.png",
+  "bar-chart": "https://em-content.zobj.net/source/apple/419/bar-chart_1f4ca.png",
+  "clipboard": "https://em-content.zobj.net/source/apple/419/clipboard_1f4cb.png",
+  "pushpin": "https://em-content.zobj.net/source/apple/419/pushpin_1f4cc.png",
+  "round-pushpin": "https://em-content.zobj.net/source/apple/419/round-pushpin_1f4cd.png",
+  "paperclip": "https://em-content.zobj.net/source/apple/419/paperclip_1f4ce.png",
+  "linked-paperclips": "https://em-content.zobj.net/source/apple/419/linked-paperclips_1f587-fe0f.png",
+  "straight-ruler": "https://em-content.zobj.net/source/apple/419/straight-ruler_1f4cf.png",
+  "triangular-ruler": "https://em-content.zobj.net/source/apple/419/triangular-ruler_1f4d0.png",
+  "scissors": "https://em-content.zobj.net/source/apple/419/scissors_2702-fe0f.png",
+  "card-file-box": "https://em-content.zobj.net/source/apple/419/card-file-box_1f5c3-fe0f.png",
+  "file-cabinet": "https://em-content.zobj.net/source/apple/419/file-cabinet_1f5c4-fe0f.png",
+  "wastebasket": "https://em-content.zobj.net/source/apple/419/wastebasket_1f5d1-fe0f.png",
+  "locked": "https://em-content.zobj.net/source/apple/419/locked_1f512.png",
+  "unlocked": "https://em-content.zobj.net/source/apple/419/unlocked_1f513.png",
+  "locked-with-pen": "https://em-content.zobj.net/source/apple/419/locked-with-pen_1f50f.png",
+  "locked-with-key": "https://em-content.zobj.net/source/apple/419/locked-with-key_1f510.png",
+  "key": "https://em-content.zobj.net/source/apple/419/key_1f511.png",
+  "old-key": "https://em-content.zobj.net/source/apple/419/old-key_1f5dd-fe0f.png",
+  "hammer": "https://em-content.zobj.net/source/apple/419/hammer_1f528.png",
+  "axe": "https://em-content.zobj.net/source/apple/419/axe_1fa93.png",
+  "pick": "https://em-content.zobj.net/source/apple/419/pick_26cf-fe0f.png",
+  "hammer-and-pick": "https://em-content.zobj.net/source/apple/419/hammer-and-pick_2692-fe0f.png",
+  "hammer-and-wrench": "https://em-content.zobj.net/source/apple/419/hammer-and-wrench_1f6e0-fe0f.png",
+  "dagger": "https://em-content.zobj.net/source/apple/419/dagger_1f5e1-fe0f.png",
+  "crossed-swords": "https://em-content.zobj.net/source/apple/419/crossed-swords_2694-fe0f.png",
+  "bomb": "https://em-content.zobj.net/source/apple/419/bomb_1f4a3.png",
+  "boomerang": "https://em-content.zobj.net/source/apple/419/boomerang_1fa83.png",
+  "bow-and-arrow": "https://em-content.zobj.net/source/apple/419/bow-and-arrow_1f3f9.png",
+  "shield": "https://em-content.zobj.net/source/apple/419/shield_1f6e1-fe0f.png",
+  "carpentry-saw": "https://em-content.zobj.net/source/apple/419/carpentry-saw_1fa9a.png",
+  "wrench": "https://em-content.zobj.net/source/apple/419/wrench_1f527.png",
+  "screwdriver": "https://em-content.zobj.net/source/apple/419/screwdriver_1fa9b.png",
+  "nut-and-bolt": "https://em-content.zobj.net/source/apple/419/nut-and-bolt_1f529.png",
+  "gear": "https://em-content.zobj.net/source/apple/419/gear_2699-fe0f.png",
+  "clamp": "https://em-content.zobj.net/source/apple/419/clamp_1f5dc-fe0f.png",
+  "balance-scale": "https://em-content.zobj.net/source/apple/419/balance-scale_2696-fe0f.png",
+  "white-cane": "https://em-content.zobj.net/source/apple/419/white-cane_1f9af.png",
+  "link": "https://em-content.zobj.net/source/apple/419/link_1f517.png",
+  "broken-chain": "https://em-content.zobj.net/source/apple/419/broken-chain_26d3-fe0f-200d-1f4a5.png",
+  "chains": "https://em-content.zobj.net/source/apple/419/chains_26d3-fe0f.png",
+  "hook": "https://em-content.zobj.net/source/apple/419/hook_1fa9d.png",
+  "toolbox": "https://em-content.zobj.net/source/apple/419/toolbox_1f9f0.png",
+  "magnet": "https://em-content.zobj.net/source/apple/419/magnet_1f9f2.png",
+  "ladder": "https://em-content.zobj.net/source/apple/419/ladder_1fa9c.png",
+  "shovel": "https://em-content.zobj.net/source/apple/419/shovel_1fa8f.png",
+  "alembic": "https://em-content.zobj.net/source/apple/419/alembic_2697-fe0f.png",
+  "test-tube": "https://em-content.zobj.net/source/apple/419/test-tube_1f9ea.png",
+  "petri-dish": "https://em-content.zobj.net/source/apple/419/petri-dish_1f9eb.png",
+  "microscope": "https://em-content.zobj.net/source/apple/419/microscope_1f52c.png",
+  "telescope": "https://em-content.zobj.net/source/apple/419/telescope_1f52d.png",
+  "satellite-antenna": "https://em-content.zobj.net/source/apple/419/satellite-antenna_1f4e1.png",
+  "syringe": "https://em-content.zobj.net/source/apple/419/syringe_1f489.png",
+  "pill": "https://em-content.zobj.net/source/apple/419/pill_1f48a.png",
+  "adhesive-bandage": "https://em-content.zobj.net/source/apple/419/adhesive-bandage_1fa79.png",
+  "crutch": "https://em-content.zobj.net/source/apple/419/crutch_1fa7c.png",
+  "stethoscope": "https://em-content.zobj.net/source/apple/419/stethoscope_1fa7a.png",
+  "x-ray": "https://em-content.zobj.net/source/apple/419/x-ray_1fa7b.png",
+  "door": "https://em-content.zobj.net/source/apple/419/door_1f6aa.png",
+  "mirror": "https://em-content.zobj.net/source/apple/419/mirror_1fa9e.png",
+  "window": "https://em-content.zobj.net/source/apple/419/window_1fa9f.png",
+  "bed": "https://em-content.zobj.net/source/apple/419/bed_1f6cf-fe0f.png",
+  "couch-and-lamp": "https://em-content.zobj.net/source/apple/419/couch-and-lamp_1f6cb-fe0f.png",
+  "chair": "https://em-content.zobj.net/source/apple/419/chair_1fa91.png",
+  "toilet": "https://em-content.zobj.net/source/apple/419/toilet_1f6bd.png",
+  "plunger": "https://em-content.zobj.net/source/apple/419/plunger_1faa0.png",
+  "shower": "https://em-content.zobj.net/source/apple/419/shower_1f6bf.png",
+  "bathtub": "https://em-content.zobj.net/source/apple/419/bathtub_1f6c1.png",
+  "mouse-trap": "https://em-content.zobj.net/source/apple/419/mouse-trap_1faa4.png",
+  "razor": "https://em-content.zobj.net/source/apple/419/razor_1fa92.png",
+  "lotion-bottle": "https://em-content.zobj.net/source/apple/419/lotion-bottle_1f9f4.png",
+  "safety-pin": "https://em-content.zobj.net/source/apple/419/safety-pin_1f9f7.png",
+  "broom": "https://em-content.zobj.net/source/apple/419/broom_1f9f9.png",
+  "basket": "https://em-content.zobj.net/source/apple/419/basket_1f9fa.png",
+  "roll-of-paper": "https://em-content.zobj.net/source/apple/419/roll-of-paper_1f9fb.png",
+  "bucket": "https://em-content.zobj.net/source/apple/419/bucket_1faa3.png",
+  "soap": "https://em-content.zobj.net/source/apple/419/soap_1f9fc.png",
+  "bubbles": "https://em-content.zobj.net/source/apple/419/bubbles_1fae7.png",
+  "sponge": "https://em-content.zobj.net/source/apple/419/sponge_1f9fd.png",
+  "fire-extinguisher": "https://em-content.zobj.net/source/apple/419/fire-extinguisher_1f9ef.png",
+  "shopping-cart": "https://em-content.zobj.net/source/apple/419/shopping-cart_1f6d2.png",
+  "cigarette": "https://em-content.zobj.net/source/apple/419/cigarette_1f6ac.png",
+  "headstone": "https://em-content.zobj.net/source/apple/419/headstone_1faa6.png",
+  "funeral-urn": "https://em-content.zobj.net/source/apple/419/funeral-urn_26b1-fe0f.png",
+  "identification-card": "https://em-content.zobj.net/source/apple/419/identification-card_1faaa.png",
+  "toothbrush": "https://em-content.zobj.net/source/apple/419/toothbrush_1faa5.png",
+  "coffin": "https://em-content.zobj.net/source/apple/419/coffin_26b0-fe0f.png",
+  "placard": "https://em-content.zobj.net/source/apple/419/placard_1faa7.png",
+  "love-letter": "https://em-content.zobj.net/source/apple/419/love-letter_1f48c.png",
+  "heart-with-arrow": "https://em-content.zobj.net/source/apple/419/heart-with-arrow_1f498.png",
+  "growing-heart": "https://em-content.zobj.net/source/apple/419/growing-heart_1f497.png",
+  "beating-heart": "https://em-content.zobj.net/source/apple/419/beating-heart_1f493.png",
+  "two-hearts": "https://em-content.zobj.net/source/apple/419/two-hearts_1f495.png",
+  "heart-exclamation": "https://em-content.zobj.net/source/apple/419/heart-exclamation_2763-fe0f.png",
+  "heart-with-ribbon": "https://em-content.zobj.net/source/apple/419/heart-with-ribbon_1f49d.png",
+  "sparkling-heart": "https://em-content.zobj.net/source/apple/419/sparkling-heart_1f496.png",
+  "revolving-hearts": "https://em-content.zobj.net/source/apple/419/revolving-hearts_1f49e.png",
+  "heart-decoration": "https://em-content.zobj.net/source/apple/419/heart-decoration_1f49f.png",
+  "broken-heart": "https://em-content.zobj.net/source/apple/419/broken-heart_1f494.png",
+  "heart-on-fire": "https://em-content.zobj.net/source/apple/419/heart-on-fire_2764-fe0f-200d-1f525.png",
+  "mending-heart": "https://em-content.zobj.net/source/apple/419/mending-heart_2764-fe0f-200d-1fa79.png",
+  "red-heart": "https://em-content.zobj.net/source/apple/419/red-heart_2764-fe0f.png",
+  "pink-heart": "https://em-content.zobj.net/source/apple/419/pink-heart_1fa77.png",
+  "orange-heart": "https://em-content.zobj.net/source/apple/419/orange-heart_1f9e1.png",
+  "yellow-heart": "https://em-content.zobj.net/source/apple/419/yellow-heart_1f49b.png",
+  "green-heart": "https://em-content.zobj.net/source/apple/419/green-heart_1f49a.png",
+  "blue-heart": "https://em-content.zobj.net/source/apple/419/blue-heart_1f499.png",
+  "light-blue-heart": "https://em-content.zobj.net/source/apple/419/light-blue-heart_1fa75.png",
+  "purple-heart": "https://em-content.zobj.net/source/apple/419/purple-heart_1f49c.png",
+  "brown-heart": "https://em-content.zobj.net/source/apple/419/brown-heart_1f90e.png",
+  "black-heart": "https://em-content.zobj.net/source/apple/419/black-heart_1f5a4.png",
+  "grey-heart": "https://em-content.zobj.net/source/apple/419/grey-heart_1fa76.png",
+  "white-heart": "https://em-content.zobj.net/source/apple/419/white-heart_1f90d.png",
+  "kiss-mark": "https://em-content.zobj.net/source/apple/419/kiss-mark_1f48b.png",
+  "hundred-points": "https://em-content.zobj.net/source/apple/419/hundred-points_1f4af.png",
+  "anger-symbol": "https://em-content.zobj.net/source/apple/419/anger-symbol_1f4a2.png",
+  "collision": "https://em-content.zobj.net/source/apple/419/collision_1f4a5.png",
+  "dizzy": "https://em-content.zobj.net/source/apple/419/dizzy_1f4ab.png",
+  "sweat-droplets": "https://em-content.zobj.net/source/apple/419/sweat-droplets_1f4a6.png",
+  "dashing-away": "https://em-content.zobj.net/source/apple/419/dashing-away_1f4a8.png",
+  "hole": "https://em-content.zobj.net/source/apple/419/hole_1f573-fe0f.png",
+  "speech-balloon": "https://em-content.zobj.net/source/apple/419/speech-balloon_1f4ac.png",
+
+  "monkey-face": "https://em-content.zobj.net/source/apple/419/monkey-face_1f435.png",
+  "monkey": "https://em-content.zobj.net/source/apple/419/monkey_1f412.png",
+  "gorilla": "https://em-content.zobj.net/source/apple/419/gorilla_1f98d.png",
+  "dog": "https://em-content.zobj.net/source/apple/419/dog_1f415.png",
+  "orangutan": "https://em-content.zobj.net/source/apple/419/orangutan_1f9a7.png",
+  "dog-face": "https://em-content.zobj.net/source/apple/419/dog-face_1f436.png",
+  "guide-dog": "https://em-content.zobj.net/source/apple/419/guide-dog_1f9ae.png",
+  "service-dog": "https://em-content.zobj.net/source/apple/419/service-dog_1f415-200d-1f9ba.png",
+  "poodle": "https://em-content.zobj.net/source/apple/419/poodle_1f429.png",
+  "wolf": "https://em-content.zobj.net/source/apple/419/wolf_1f43a.png",
+  "fox": "https://em-content.zobj.net/source/apple/419/fox_1f98a.png",
+  "raccoon": "https://em-content.zobj.net/source/apple/419/raccoon_1f99d.png",
+  "cat-face": "https://em-content.zobj.net/source/apple/419/cat-face_1f431.png",
+  "cat": "https://em-content.zobj.net/source/apple/419/cat_1f408.png",
+  "black-cat": "https://em-content.zobj.net/source/apple/419/black-cat_1f408-200d-2b1b.png",
+  "lion": "https://em-content.zobj.net/source/apple/419/lion_1f981.png",
+  "tiger-face": "https://em-content.zobj.net/source/apple/419/tiger-face_1f42f.png",
+  "tiger": "https://em-content.zobj.net/source/apple/419/tiger_1f405.png",
+  "leopard": "https://em-content.zobj.net/source/apple/419/leopard_1f406.png",
+  "horse-face": "https://em-content.zobj.net/source/apple/419/horse-face_1f434.png",
+  "donkey": "https://em-content.zobj.net/source/apple/419/donkey_1facf.png",
+  "horse": "https://em-content.zobj.net/source/apple/419/horse_1f40e.png",
+  "unicorn": "https://em-content.zobj.net/source/apple/419/unicorn_1f984.png",
+  "zebra": "https://em-content.zobj.net/source/apple/419/zebra_1f993.png",
+  "deer": "https://em-content.zobj.net/source/apple/419/deer_1f98c.png",
+  "bison": "https://em-content.zobj.net/source/apple/419/bison_1f9ac.png",
+  "cow-face": "https://em-content.zobj.net/source/apple/419/cow-face_1f42e.png",
+  "water-buffalo": "https://em-content.zobj.net/source/apple/419/water-buffalo_1f403.png",
+  "cow": "https://em-content.zobj.net/source/apple/419/cow_1f404.png",
+  "pig-face": "https://em-content.zobj.net/source/apple/419/pig-face_1f437.png",
+  "pig": "https://em-content.zobj.net/source/apple/419/pig_1f416.png",
+  "boar": "https://em-content.zobj.net/source/apple/419/boar_1f417.png",
+  "pig-nose": "https://em-content.zobj.net/source/apple/419/pig-nose_1f43d.png",
+  "ewe": "https://em-content.zobj.net/source/apple/419/ewe_1f411.png",
+  "goat": "https://em-content.zobj.net/source/apple/419/goat_1f410.png",
+  "camel": "https://em-content.zobj.net/source/apple/419/camel_1f42a.png",
+  "two-hump-camel": "https://em-content.zobj.net/source/apple/419/two-hump-camel_1f42b.png",
+  "llama": "https://em-content.zobj.net/source/apple/419/llama_1f999.png",
+  "giraffe": "https://em-content.zobj.net/source/apple/419/giraffe_1f992.png",
+  "elephant": "https://em-content.zobj.net/source/apple/419/elephant_1f418.png",
+  "mammoth": "https://em-content.zobj.net/source/apple/419/mammoth_1f9a3.png",
+  "rhinoceros": "https://em-content.zobj.net/source/apple/419/rhinoceros_1f98f.png",
+  "hippopotamus": "https://em-content.zobj.net/source/apple/419/hippopotamus_1f99b.png",
+  "mouse-face": "https://em-content.zobj.net/source/apple/419/mouse-face_1f42d.png",
+  "mouse": "https://em-content.zobj.net/source/apple/419/mouse_1f401.png",
+  "rat": "https://em-content.zobj.net/source/apple/419/rat_1f400.png",
+  "hamster": "https://em-content.zobj.net/source/apple/419/hamster_1f439.png",
+  "rabbit": "https://em-content.zobj.net/source/apple/419/rabbit_1f407.png",
+  "chipmunk": "https://em-content.zobj.net/source/apple/419/chipmunk_1f43f-fe0f.png",
+  "moose": "https://em-content.zobj.net/source/apple/419/moose_1face.png",
+  "ox": "https://em-content.zobj.net/source/apple/419/ox_1f402.png",
+  "ram": "https://em-content.zobj.net/source/apple/419/ram_1f40f.png",
+  "rabbit-face": "https://em-content.zobj.net/source/apple/419/rabbit-face_1f430.png",
+  "beaver": "https://em-content.zobj.net/source/apple/419/beaver_1f9ab.png",
+  "hedgehog": "https://em-content.zobj.net/source/apple/419/hedgehog_1f994.png",
+  "bat": "https://em-content.zobj.net/source/apple/419/bat_1f987.png",
+  "bear": "https://em-content.zobj.net/source/apple/419/bear_1f43b.png",
+  "polar-bear": "https://em-content.zobj.net/source/apple/419/polar-bear_1f43b-200d-2744-fe0f.png",
+  "koala": "https://em-content.zobj.net/source/apple/419/koala_1f428.png",
+  "panda": "https://em-content.zobj.net/source/apple/419/panda_1f43c.png",
+  "sloth": "https://em-content.zobj.net/source/apple/419/sloth_1f9a5.png",
+  "otter": "https://em-content.zobj.net/source/apple/419/otter_1f9a6.png",
+  "skunk": "https://em-content.zobj.net/source/apple/419/skunk_1f9a8.png",
+  "kangaroo": "https://em-content.zobj.net/source/apple/419/kangaroo_1f998.png",
+  "badger": "https://em-content.zobj.net/source/apple/419/badger_1f9a1.png",
+  "paw-prints": "https://em-content.zobj.net/source/apple/419/paw-prints_1f43e.png",
+  "turkey": "https://em-content.zobj.net/source/apple/419/turkey_1f983.png",
+  "chicken": "https://em-content.zobj.net/source/apple/419/chicken_1f414.png",
+  "rooster": "https://em-content.zobj.net/source/apple/419/rooster_1f413.png",
+  "hatching-chick": "https://em-content.zobj.net/source/apple/419/hatching-chick_1f423.png",
+  "baby-chick": "https://em-content.zobj.net/source/apple/419/baby-chick_1f424.png",
+  "front-facing-baby-chick": "https://em-content.zobj.net/source/apple/419/front-facing-baby-chick_1f425.png",
+  "bird": "https://em-content.zobj.net/source/apple/419/bird_1f426.png",
+  "penguin": "https://em-content.zobj.net/source/apple/419/penguin_1f427.png",
+  "dove": "https://em-content.zobj.net/source/apple/419/dove_1f54a-fe0f.png",
+  "eagle": "https://em-content.zobj.net/source/apple/419/eagle_1f985.png",
+  "duck": "https://em-content.zobj.net/source/apple/419/duck_1f986.png",
+  "swan": "https://em-content.zobj.net/source/apple/419/swan_1f9a2.png",
+  "owl": "https://em-content.zobj.net/source/apple/419/owl_1f989.png",
+  "dodo": "https://em-content.zobj.net/source/apple/419/dodo_1f9a4.png",
+  "feather": "https://em-content.zobj.net/source/apple/419/feather_1fab6.png",
+  "flamingo": "https://em-content.zobj.net/source/apple/419/flamingo_1f9a9.png",
+  "peacock": "https://em-content.zobj.net/source/apple/419/peacock_1f99a.png",
+  "parrot": "https://em-content.zobj.net/source/apple/419/parrot_1f99c.png",
+  "wing": "https://em-content.zobj.net/source/apple/419/wing_1fabd.png",
+  "black-bird": "https://em-content.zobj.net/source/apple/419/black-bird_1f426-200d-2b1b.png",
+  "goose": "https://em-content.zobj.net/source/apple/419/goose_1fabf.png",
+  "phoenix-bird": "https://em-content.zobj.net/source/apple/419/phoenix-bird_1f426-200d-1f525.png",
+  "frog": "https://em-content.zobj.net/source/apple/419/frog_1f438.png",
+  "crocodile": "https://em-content.zobj.net/source/apple/419/crocodile_1f40a.png",
+  "snake": "https://em-content.zobj.net/source/apple/419/snake_1f40d.png",
+  "turtle": "https://em-content.zobj.net/source/apple/419/turtle_1f422.png",
+  "lizard": "https://em-content.zobj.net/source/apple/419/lizard_1f98e.png",
+  "dragon-face": "https://em-content.zobj.net/source/apple/419/dragon-face_1f432.png",
+  "dragon": "https://em-content.zobj.net/source/apple/419/dragon_1f409.png",
+  "sauropod": "https://em-content.zobj.net/source/apple/419/sauropod_1f995.png",
+  "t-rex": "https://em-content.zobj.net/source/apple/419/t-rex_1f996.png",
+  "spouting-whale": "https://em-content.zobj.net/source/apple/419/spouting-whale_1f433.png",
+  "whale": "https://em-content.zobj.net/source/apple/419/whale_1f40b.png",
+  "dolphin": "https://em-content.zobj.net/source/apple/419/dolphin_1f42c.png",
+  "seal": "https://em-content.zobj.net/source/apple/419/seal_1f9ad.png",
+  "fish": "https://em-content.zobj.net/source/apple/419/fish_1f41f.png",
+  "tropical-fish": "https://em-content.zobj.net/source/apple/419/tropical-fish_1f420.png",
+  "blowfish": "https://em-content.zobj.net/source/apple/419/blowfish_1f421.png",
+  "shark": "https://em-content.zobj.net/source/apple/419/shark_1f988.png",
+  "octopus": "https://em-content.zobj.net/source/apple/419/octopus_1f419.png",
+  "spiral-shell": "https://em-content.zobj.net/source/apple/419/spiral-shell_1f41a.png",
+  "coral": "https://em-content.zobj.net/source/apple/419/coral_1fab8.png",
+  "jellyfish": "https://em-content.zobj.net/source/apple/419/jellyfish_1fabc.png",
+  "snail": "https://em-content.zobj.net/source/apple/419/snail_1f40c.png",
+  "butterfly": "https://em-content.zobj.net/source/apple/419/butterfly_1f98b.png",
+  "bug": "https://em-content.zobj.net/source/apple/419/bug_1f41b.png",
+  "ant": "https://em-content.zobj.net/source/apple/419/ant_1f41c.png",
+  "honeybee": "https://em-content.zobj.net/source/apple/419/honeybee_1f41d.png",
+  "beetle": "https://em-content.zobj.net/source/apple/419/beetle_1fab2.png",
+  "lady-beetle": "https://em-content.zobj.net/source/apple/419/lady-beetle_1f41e.png",
+  "cricket": "https://em-content.zobj.net/source/apple/419/cricket_1f997.png",
+  "cockroach": "https://em-content.zobj.net/source/apple/419/cockroach_1fab3.png",
+  "spider": "https://em-content.zobj.net/source/apple/419/spider_1f577-fe0f.png",
+  "spider-web": "https://em-content.zobj.net/source/apple/419/spider-web_1f578-fe0f.png",
+  "scorpion": "https://em-content.zobj.net/source/apple/419/scorpion_1f982.png",
+  "mosquito": "https://em-content.zobj.net/source/apple/419/mosquito_1f99f.png",
+  "fly": "https://em-content.zobj.net/source/apple/419/fly_1fab0.png",
+  "worm": "https://em-content.zobj.net/source/apple/419/worm_1fab1.png",
+  "microbe": "https://em-content.zobj.net/source/apple/419/microbe_1f9a0.png",
+  "bouquet": "https://em-content.zobj.net/source/apple/419/bouquet_1f490.png",
+  "cherry-blossom": "https://em-content.zobj.net/source/apple/419/cherry-blossom_1f338.png",
+  "white-flower": "https://em-content.zobj.net/source/apple/419/white-flower_1f4ae.png",
+  "lotus": "https://em-content.zobj.net/source/apple/419/lotus_1fab7.png",
+  "rosette": "https://em-content.zobj.net/source/apple/419/rosette_1f3f5-fe0f.png",
+  "rose": "https://em-content.zobj.net/source/apple/419/rose_1f339.png",
+  "wilted-flower": "https://em-content.zobj.net/source/apple/419/wilted-flower_1f940.png",
+  "hibiscus": "https://em-content.zobj.net/source/apple/419/hibiscus_1f33a.png",
+  "sunflower": "https://em-content.zobj.net/source/apple/419/sunflower_1f33b.png",
+  "blossom": "https://em-content.zobj.net/source/apple/419/blossom_1f33c.png",
+  "tulip": "https://em-content.zobj.net/source/apple/419/tulip_1f337.png",
+  "hyacinth": "https://em-content.zobj.net/source/apple/419/hyacinth_1fabb.png",
+  "seedling": "https://em-content.zobj.net/source/apple/419/seedling_1f331.png",
+  "potted-plant": "https://em-content.zobj.net/source/apple/419/potted-plant_1fab4.png",
+  "evergreen-tree": "https://em-content.zobj.net/source/apple/419/evergreen-tree_1f332.png",
+  "deciduous-tree": "https://em-content.zobj.net/source/apple/419/deciduous-tree_1f333.png",
+  "leafless-tree": "https://em-content.zobj.net/source/apple/419/leafless-tree_1fabe.png",
+  "palm-tree": "https://em-content.zobj.net/source/apple/419/palm-tree_1f334.png",
+  "cactus": "https://em-content.zobj.net/source/apple/419/cactus_1f335.png",
+  "sheaf-of-rice": "https://em-content.zobj.net/source/apple/419/sheaf-of-rice_1f33e.png",
+  "herb": "https://em-content.zobj.net/source/apple/419/herb_1f33f.png",
+  "shamrock": "https://em-content.zobj.net/source/apple/419/shamrock_2618-fe0f.png",
+  "four-leaf-clover": "https://em-content.zobj.net/source/apple/419/four-leaf-clover_1f340.png",
+  "maple-leaf": "https://em-content.zobj.net/source/apple/419/maple-leaf_1f341.png",
+  "fallen-leaf": "https://em-content.zobj.net/source/apple/419/fallen-leaf_1f342.png",
+  "leaf-fluttering-in-wind": "https://em-content.zobj.net/source/apple/419/leaf-fluttering-in-wind_1f343.png",
+  "empty-nest": "https://em-content.zobj.net/source/apple/419/empty-nest_1fab9.png",
+  "nest-with-eggs": "https://em-content.zobj.net/source/apple/419/nest-with-eggs_1faba.png",
+  "mushroom": "https://em-content.zobj.net/source/apple/419/mushroom_1f344.png",
+  "crab": "https://em-content.zobj.net/source/apple/419/crab_1f980.png",
+  "lobster": "https://em-content.zobj.net/source/apple/419/lobster_1f99e.png",
+  "shrimp": "https://em-content.zobj.net/source/apple/419/shrimp_1f990.png",
+  "squid": "https://em-content.zobj.net/source/apple/419/squid_1f991.png",
+  "oyster": "https://em-content.zobj.net/source/apple/419/oyster_1f9aa.png",
+  "rock": "https://em-content.zobj.net/source/apple/419/rock_1faa8.png",
+  "wood": "https://em-content.zobj.net/source/apple/419/wood_1fab5.png",
+  "new-moon": "https://em-content.zobj.net/source/apple/419/new-moon_1f311.png",
+  "waxing-crescent-moon": "https://em-content.zobj.net/source/apple/419/waxing-crescent-moon_1f312.png",
+  "first-quarter-moon": "https://em-content.zobj.net/source/apple/419/first-quarter-moon_1f313.png",
+  "waxing-gibbous-moon": "https://em-content.zobj.net/source/apple/419/waxing-gibbous-moon_1f314.png",
+  "full-moon": "https://em-content.zobj.net/source/apple/419/full-moon_1f315.png",
+  "waning-gibbous-moon": "https://em-content.zobj.net/source/apple/419/waning-gibbous-moon_1f316.png",
+  "last-quarter-moon": "https://em-content.zobj.net/source/apple/419/last-quarter-moon_1f317.png",
+  "waning-crescent-moon": "https://em-content.zobj.net/source/apple/419/waning-crescent-moon_1f318.png",
+  "crescent-moon": "https://em-content.zobj.net/source/apple/419/crescent-moon_1f319.png",
+  "new-moon-face": "https://em-content.zobj.net/source/apple/419/new-moon-face_1f31a.png",
+  "first-quarter-moon-face": "https://em-content.zobj.net/source/apple/419/first-quarter-moon-face_1f31b.png",
+  "last-quarter-moon-face": "https://em-content.zobj.net/source/apple/419/last-quarter-moon-face_1f31c.png",
+  "sun": "https://em-content.zobj.net/source/apple/419/sun_2600-fe0f.png",
+  "full-moon-face": "https://em-content.zobj.net/source/apple/419/full-moon-face_1f31d.png",
+  "sun-with-face": "https://em-content.zobj.net/source/apple/419/sun-with-face_1f31e.png",
+  "ringed-planet": "https://em-content.zobj.net/source/apple/419/ringed-planet_1fa90.png",
+  "star": "https://em-content.zobj.net/source/apple/419/star_2b50.png",
+  "glowing-star": "https://em-content.zobj.net/source/apple/419/glowing-star_1f31f.png",
+  "shooting-star": "https://em-content.zobj.net/source/apple/419/shooting-star_1f320.png",
+  "milky-way": "https://em-content.zobj.net/source/apple/419/milky-way_1f30c.png",
+  "cloud": "https://em-content.zobj.net/source/apple/419/cloud_2601-fe0f.png",
+  "sun-behind-cloud": "https://em-content.zobj.net/source/apple/419/sun-behind-cloud_26c5.png",
+  "cloud-with-lightning-and-rain": "https://em-content.zobj.net/source/apple/419/cloud-with-lightning-and-rain_26c8-fe0f.png",
+  "sun-behind-small-cloud": "https://em-content.zobj.net/source/apple/419/sun-behind-small-cloud_1f324-fe0f.png",
+  "sun-behind-large-cloud": "https://em-content.zobj.net/source/apple/419/sun-behind-large-cloud_1f325-fe0f.png",
+  "sun-behind-rain-cloud": "https://em-content.zobj.net/source/apple/419/sun-behind-rain-cloud_1f326-fe0f.png",
+  "cloud-with-rain": "https://em-content.zobj.net/source/apple/419/cloud-with-rain_1f327-fe0f.png",
+  "cloud-with-snow": "https://em-content.zobj.net/source/apple/419/cloud-with-snow_1f328-fe0f.png",
+  "cloud-with-lightning": "https://em-content.zobj.net/source/apple/419/cloud-with-lightning_1f329-fe0f.png",
+  "tornado": "https://em-content.zobj.net/source/apple/419/tornado_1f32a-fe0f.png",
+  "fog": "https://em-content.zobj.net/source/apple/419/fog_1f32b-fe0f.png",
+  "wind-face": "https://em-content.zobj.net/source/apple/419/wind-face_1f32c-fe0f.png",
+  "cyclone": "https://em-content.zobj.net/source/apple/419/cyclone_1f300.png",
+  "rainbow": "https://em-content.zobj.net/source/apple/419/rainbow_1f308.png",
+  "closed-umbrella": "https://em-content.zobj.net/source/apple/419/closed-umbrella_1f302.png",
+  "umbrella": "https://em-content.zobj.net/source/apple/419/umbrella_2602-fe0f.png",
+  "umbrella-with-rain-drops": "https://em-content.zobj.net/source/apple/419/umbrella-with-rain-drops_2614.png",
+  "umbrella-on-ground": "https://em-content.zobj.net/source/apple/419/umbrella-on-ground_26f1-fe0f.png",
+  "high-voltage": "https://em-content.zobj.net/source/apple/419/high-voltage_26a1.png",
+  "snowflake": "https://em-content.zobj.net/source/apple/419/snowflake_2744-fe0f.png",
+  "snowman": "https://em-content.zobj.net/source/apple/419/snowman_2603-fe0f.png",
+  "snowman-without-snow": "https://em-content.zobj.net/source/apple/419/snowman-without-snow_26c4.png",
+  "comet": "https://em-content.zobj.net/source/apple/419/comet_2604-fe0f.png",
+  "fire": "https://em-content.zobj.net/source/apple/419/fire_1f525.png",
+  "droplet": "https://em-content.zobj.net/source/apple/419/droplet_1f4a7.png",
+  "water-wave": "https://em-content.zobj.net/source/apple/419/water-wave_1f30a.png",
+  "grapes": "https://em-content.zobj.net/source/apple/419/grapes_1f347.png",
+  "melon": "https://em-content.zobj.net/source/apple/419/melon_1f348.png",
+  "watermelon": "https://em-content.zobj.net/source/apple/419/watermelon_1f349.png",
+  "tangerine": "https://em-content.zobj.net/source/apple/419/tangerine_1f34a.png",
+  "lemon": "https://em-content.zobj.net/source/apple/419/lemon_1f34b.png",
+  "lime": "https://em-content.zobj.net/source/apple/419/lime_1f34b-200d-1f7e9.png",
+  "banana": "https://em-content.zobj.net/source/apple/419/banana_1f34c.png",
+  "pineapple": "https://em-content.zobj.net/source/apple/419/pineapple_1f34d.png",
+  "mango": "https://em-content.zobj.net/source/apple/419/mango_1f96d.png",
+  "red-apple": "https://em-content.zobj.net/source/apple/419/red-apple_1f34e.png",
+  "green-apple": "https://em-content.zobj.net/source/apple/419/green-apple_1f34f.png",
+  "pear": "https://em-content.zobj.net/source/apple/419/pear_1f350.png",
+  "peach": "https://em-content.zobj.net/source/apple/419/peach_1f351.png",
+  "cherries": "https://em-content.zobj.net/source/apple/419/cherries_1f352.png",
+  "strawberry": "https://em-content.zobj.net/source/apple/419/strawberry_1f353.png",
+  "blueberries": "https://em-content.zobj.net/source/apple/419/blueberries_1fad0.png",
+  "kiwi-fruit": "https://em-content.zobj.net/source/apple/419/kiwi-fruit_1f95d.png",
+  "tomato": "https://em-content.zobj.net/source/apple/419/tomato_1f345.png",
+  "olive": "https://em-content.zobj.net/source/apple/419/olive_1fad2.png",
+  "coconut": "https://em-content.zobj.net/source/apple/419/coconut_1f965.png",
+  "avocado": "https://em-content.zobj.net/source/apple/419/avocado_1f951.png",
+  "eggplant": "https://em-content.zobj.net/source/apple/419/eggplant_1f346.png",
+  "potato": "https://em-content.zobj.net/source/apple/419/potato_1f954.png",
+  "carrot": "https://em-content.zobj.net/source/apple/419/carrot_1f955.png",
+  "ear-of-corn": "https://em-content.zobj.net/source/apple/419/ear-of-corn_1f33d.png",
+  "hot-pepper": "https://em-content.zobj.net/source/apple/419/hot-pepper_1f336-fe0f.png",
+  "bell-pepper": "https://em-content.zobj.net/source/apple/419/bell-pepper_1fad1.png",
+  "cucumber": "https://em-content.zobj.net/source/apple/419/cucumber_1f952.png",
+  "leafy-green": "https://em-content.zobj.net/source/apple/419/leafy-green_1f96c.png",
+  "broccoli": "https://em-content.zobj.net/source/apple/419/broccoli_1f966.png",
+  "garlic": "https://em-content.zobj.net/source/apple/419/garlic_1f9c4.png",
+  "onion": "https://em-content.zobj.net/source/apple/419/onion_1f9c5.png",
+  "peanuts": "https://em-content.zobj.net/source/apple/419/peanuts_1f95c.png",
+  "beans": "https://em-content.zobj.net/source/apple/419/beans_1fad8.png",
+  "chestnut": "https://em-content.zobj.net/source/apple/419/chestnut_1f330.png",
+  "ginger": "https://em-content.zobj.net/source/apple/419/ginger_1fada.png",
+  "pea-pod": "https://em-content.zobj.net/source/apple/419/pea-pod_1fadb.png",
+  "root-vegetable": "https://em-content.zobj.net/source/apple/419/root-vegetable_1fadc.png",
+  "brown-mushroom": "https://em-content.zobj.net/source/apple/419/brown-mushroom_1f344-200d-1f7eb.png",
+  "bread": "https://em-content.zobj.net/source/apple/419/bread_1f35e.png",
+  "croissant": "https://em-content.zobj.net/source/apple/419/croissant_1f950.png",
+  "baguette-bread": "https://em-content.zobj.net/source/apple/419/baguette-bread_1f956.png",
+  "flatbread": "https://em-content.zobj.net/source/apple/419/flatbread_1fad3.png",
+  "bagel": "https://em-content.zobj.net/source/apple/419/bagel_1f96f.png",
+  "pretzel": "https://em-content.zobj.net/source/apple/419/pretzel_1f968.png",
+  "pancakes": "https://em-content.zobj.net/source/apple/419/pancakes_1f95e.png",
+  "waffle": "https://em-content.zobj.net/source/apple/419/waffle_1f9c7.png",
+  "cheese-wedge": "https://em-content.zobj.net/source/apple/419/cheese-wedge_1f9c0.png",
+  "meat-on-bone": "https://em-content.zobj.net/source/apple/419/meat-on-bone_1f356.png",
+  "poultry-leg": "https://em-content.zobj.net/source/apple/419/poultry-leg_1f357.png",
+  "cut-of-meat": "https://em-content.zobj.net/source/apple/419/cut-of-meat_1f969.png",
+  "bacon": "https://em-content.zobj.net/source/apple/419/bacon_1f953.png",
+  "hamburger": "https://em-content.zobj.net/source/apple/419/hamburger_1f354.png",
+  "french-fries": "https://em-content.zobj.net/source/apple/419/french-fries_1f35f.png",
+  "pizza": "https://em-content.zobj.net/source/apple/419/pizza_1f355.png",
+  "hot-dog": "https://em-content.zobj.net/source/apple/419/hot-dog_1f32d.png",
+  "sandwich": "https://em-content.zobj.net/source/apple/419/sandwich_1f96a.png",
+  "taco": "https://em-content.zobj.net/source/apple/419/taco_1f32e.png",
+  "burrito": "https://em-content.zobj.net/source/apple/419/burrito_1f32f.png",
+  "tamale": "https://em-content.zobj.net/source/apple/419/tamale_1fad4.png",
+  "stuffed-flatbread": "https://em-content.zobj.net/source/apple/419/stuffed-flatbread_1f959.png",
+  "falafel": "https://em-content.zobj.net/source/apple/419/falafel_1f9c6.png",
+  "egg": "https://em-content.zobj.net/source/apple/419/egg_1f95a.png",
+  "cooking": "https://em-content.zobj.net/source/apple/419/cooking_1f373.png",
+  "shallow-pan-of-food": "https://em-content.zobj.net/source/apple/419/shallow-pan-of-food_1f958.png",
+  "pot-of-food": "https://em-content.zobj.net/source/apple/419/pot-of-food_1f372.png",
+  "fondue": "https://em-content.zobj.net/source/apple/419/fondue_1fad5.png",
+  "bowl-with-spoon": "https://em-content.zobj.net/source/apple/419/bowl-with-spoon_1f963.png",
+  "green-salad": "https://em-content.zobj.net/source/apple/419/green-salad_1f957.png",
+  "popcorn": "https://em-content.zobj.net/source/apple/419/popcorn_1f37f.png",
+  "butter": "https://em-content.zobj.net/source/apple/419/butter_1f9c8.png",
+  "salt": "https://em-content.zobj.net/source/apple/419/salt_1f9c2.png",
+  "canned-food": "https://em-content.zobj.net/source/apple/419/canned-food_1f96b.png",
+  "bento-box": "https://em-content.zobj.net/source/apple/419/bento-box_1f371.png",
+  "rice-cracker": "https://em-content.zobj.net/source/apple/419/rice-cracker_1f358.png",
+  "rice-ball": "https://em-content.zobj.net/source/apple/419/rice-ball_1f359.png",
+  "cooked-rice": "https://em-content.zobj.net/source/apple/419/cooked-rice_1f35a.png",
+  "curry-rice": "https://em-content.zobj.net/source/apple/419/curry-rice_1f35b.png",
+  "steaming-bowl": "https://em-content.zobj.net/source/apple/419/steaming-bowl_1f35c.png",
+  "spaghetti": "https://em-content.zobj.net/source/apple/419/spaghetti_1f35d.png",
+  "roasted-sweet-potato": "https://em-content.zobj.net/source/apple/419/roasted-sweet-potato_1f360.png",
+  "oden": "https://em-content.zobj.net/source/apple/419/oden_1f362.png",
+  "sushi": "https://em-content.zobj.net/source/apple/419/sushi_1f363.png",
+  "fried-shrimp": "https://em-content.zobj.net/source/apple/419/fried-shrimp_1f364.png",
+  "fish-cake-with-swirl": "https://em-content.zobj.net/source/apple/419/fish-cake-with-swirl_1f365.png",
+  "moon-cake": "https://em-content.zobj.net/source/apple/419/moon-cake_1f96e.png",
+  "dango": "https://em-content.zobj.net/source/apple/419/dango_1f361.png",
+  "dumpling": "https://em-content.zobj.net/source/apple/419/dumpling_1f95f.png",
+  "fortune-cookie": "https://em-content.zobj.net/source/apple/419/fortune-cookie_1f960.png",
+  "takeout-box": "https://em-content.zobj.net/source/apple/419/takeout-box_1f961.png",
+  "soft-ice-cream": "https://em-content.zobj.net/source/apple/419/soft-ice-cream_1f366.png",
+  "shaved-ice": "https://em-content.zobj.net/source/apple/419/shaved-ice_1f367.png",
+  "ice-cream": "https://em-content.zobj.net/source/apple/419/ice-cream_1f368.png",
+  "doughnut": "https://em-content.zobj.net/source/apple/419/doughnut_1f369.png",
+  "cookie": "https://em-content.zobj.net/source/apple/419/cookie_1f36a.png",
+  "birthday-cake": "https://em-content.zobj.net/source/apple/419/birthday-cake_1f382.png",
+  "shortcake": "https://em-content.zobj.net/source/apple/419/shortcake_1f370.png",
+  "cupcake": "https://em-content.zobj.net/source/apple/419/cupcake_1f9c1.png",
+  "pie": "https://em-content.zobj.net/source/apple/419/pie_1f967.png",
+  "chocolate-bar": "https://em-content.zobj.net/source/apple/419/chocolate-bar_1f36b.png",
+  "candy": "https://em-content.zobj.net/source/apple/419/candy_1f36c.png",
+  "lollipop": "https://em-content.zobj.net/source/apple/419/lollipop_1f36d.png",
+  "custard": "https://em-content.zobj.net/source/apple/419/custard_1f36e.png",
+  "honey-pot": "https://em-content.zobj.net/source/apple/419/honey-pot_1f36f.png",
+  "baby-bottle": "https://em-content.zobj.net/source/apple/419/baby-bottle_1f37c.png",
+  "glass-of-milk": "https://em-content.zobj.net/source/apple/419/glass-of-milk_1f95b.png",
+  "hot-beverage": "https://em-content.zobj.net/source/apple/419/hot-beverage_2615.png",
+  "teapot": "https://em-content.zobj.net/source/apple/419/teapot_1fad6.png",
+  "teacup-without-handle": "https://em-content.zobj.net/source/apple/419/teacup-without-handle_1f375.png",
+  "sake": "https://em-content.zobj.net/source/apple/419/sake_1f376.png",
+  "bottle-with-popping-cork": "https://em-content.zobj.net/source/apple/419/bottle-with-popping-cork_1f37e.png",
+  "wine-glass": "https://em-content.zobj.net/source/apple/419/wine-glass_1f377.png",
+  "cocktail-glass": "https://em-content.zobj.net/source/apple/419/cocktail-glass_1f378.png",
+  "tropical-drink": "https://em-content.zobj.net/source/apple/419/tropical-drink_1f379.png",
+  "beer-mug": "https://em-content.zobj.net/source/apple/419/beer-mug_1f37a.png",
+  "clinking-beer-mugs": "https://em-content.zobj.net/source/apple/419/clinking-beer-mugs_1f37b.png",
+  "clinking-glasses": "https://em-content.zobj.net/source/apple/419/clinking-glasses_1f942.png",
+  "tumbler-glass": "https://em-content.zobj.net/source/apple/419/tumbler-glass_1f943.png",
+  "pouring-liquid": "https://em-content.zobj.net/source/apple/419/pouring-liquid_1fad7.png",
+  "cup-with-straw": "https://em-content.zobj.net/source/apple/419/cup-with-straw_1f964.png",
+  "bubble-tea": "https://em-content.zobj.net/source/apple/419/bubble-tea_1f9cb.png",
+  "beverage-box": "https://em-content.zobj.net/source/apple/419/beverage-box_1f9c3.png",
+  "mate": "https://em-content.zobj.net/source/apple/419/mate_1f9c9.png",
+  "ice": "https://em-content.zobj.net/source/apple/419/ice_1f9ca.png",
+  "chopsticks": "https://em-content.zobj.net/source/apple/419/chopsticks_1f962.png",
+  "fork-and-knife-with-plate": "https://em-content.zobj.net/source/apple/419/fork-and-knife-with-plate_1f37d-fe0f.png",
+  "fork-and-knife": "https://em-content.zobj.net/source/apple/419/fork-and-knife_1f374.png",
+  "spoon": "https://em-content.zobj.net/source/apple/419/spoon_1f944.png",
+  "kitchen-knife": "https://em-content.zobj.net/source/apple/419/kitchen-knife_1f52a.png",
+  "jar": "https://em-content.zobj.net/source/apple/419/jar_1fad9.png",
+  "amphora": "https://em-content.zobj.net/source/apple/419/amphora_1f3fa.png",
+  "jack-o-lantern": "https://em-content.zobj.net/source/apple/419/jack-o-lantern_1f383.png",
+  "christmas-tree": "https://em-content.zobj.net/source/apple/419/christmas-tree_1f384.png",
+  "fireworks": "https://em-content.zobj.net/source/apple/419/fireworks_1f386.png",
+  "sparkler": "https://em-content.zobj.net/source/apple/419/sparkler_1f387.png",
+  "firecracker": "https://em-content.zobj.net/source/apple/419/firecracker_1f9e8.png",
+  "sparkles": "https://em-content.zobj.net/source/apple/419/sparkles_2728.png",
+  "balloon": "https://em-content.zobj.net/source/apple/419/balloon_1f388.png",
+  "party-popper": "https://em-content.zobj.net/source/apple/419/party-popper_1f389.png",
+  "confetti-ball": "https://em-content.zobj.net/source/apple/419/confetti-ball_1f38a.png",
+  "tanabata-tree": "https://em-content.zobj.net/source/apple/419/tanabata-tree_1f38b.png",
+  "pine-decoration": "https://em-content.zobj.net/source/apple/419/pine-decoration_1f38d.png",
+  "carp-streamer": "https://em-content.zobj.net/source/apple/419/carp-streamer_1f38f.png",
+  "red-envelope": "https://em-content.zobj.net/source/apple/419/red-envelope_1f9e7.png",
+  "japanese-dolls": "https://em-content.zobj.net/source/apple/419/japanese-dolls_1f38e.png",
+  "wind-chime": "https://em-content.zobj.net/source/apple/419/wind-chime_1f390.png",
+  "moon-viewing-ceremony": "https://em-content.zobj.net/source/apple/419/moon-viewing-ceremony_1f391.png",
+  "wrapped-gift": "https://em-content.zobj.net/source/apple/419/wrapped-gift_1f381.png",
+  "admission-tickets": "https://em-content.zobj.net/source/apple/419/admission-tickets_1f39f-fe0f.png",
+  "ticket": "https://em-content.zobj.net/source/apple/419/ticket_1f3ab.png",
+  "military-medal": "https://em-content.zobj.net/source/apple/419/military-medal_1f396-fe0f.png",
+  "trophy": "https://em-content.zobj.net/source/apple/419/trophy_1f3c6.png",
+  "sports-medal": "https://em-content.zobj.net/source/apple/419/sports-medal_1f3c5.png",
+  "1st-place-medal": "https://em-content.zobj.net/source/apple/419/1st-place-medal_1f947.png",
+  "2nd-place-medal": "https://em-content.zobj.net/source/apple/419/2nd-place-medal_1f948.png",
+  "3rd-place-medal": "https://em-content.zobj.net/source/apple/419/3rd-place-medal_1f949.png",
+  "soccer-ball": "https://em-content.zobj.net/source/apple/419/soccer-ball_26bd.png",
+  "baseball": "https://em-content.zobj.net/source/apple/419/baseball_26be.png",
+  "softball": "https://em-content.zobj.net/source/apple/419/softball_1f94e.png",
+  "basketball": "https://em-content.zobj.net/source/apple/419/basketball_1f3c0.png",
+  "volleyball": "https://em-content.zobj.net/source/apple/419/volleyball_1f3d0.png",
+  "american-football": "https://em-content.zobj.net/source/apple/419/american-football_1f3c8.png",
+  "rugby-football": "https://em-content.zobj.net/source/apple/419/rugby-football_1f3c9.png",
+  "tennis": "https://em-content.zobj.net/source/apple/419/tennis_1f3be.png",
+  "flying-disc": "https://em-content.zobj.net/source/apple/419/flying-disc_1f94f.png",
+  "bowling": "https://em-content.zobj.net/source/apple/419/bowling_1f3b3.png",
+  "cricket-game": "https://em-content.zobj.net/source/apple/419/cricket-game_1f3cf.png",
+  "field-hockey": "https://em-content.zobj.net/source/apple/419/field-hockey_1f3d1.png",
+  "ice-hockey": "https://em-content.zobj.net/source/apple/419/ice-hockey_1f3d2.png",
+  "lacrosse": "https://em-content.zobj.net/source/apple/419/lacrosse_1f94d.png",
+  "ping-pong": "https://em-content.zobj.net/source/apple/419/ping-pong_1f3d3.png",
+  "badminton": "https://em-content.zobj.net/source/apple/419/badminton_1f3f8.png",
+  "boxing-glove": "https://em-content.zobj.net/source/apple/419/boxing-glove_1f94a.png",
+  "martial-arts-uniform": "https://em-content.zobj.net/source/apple/419/martial-arts-uniform_1f94b.png",
+  "goal-net": "https://em-content.zobj.net/source/apple/419/goal-net_1f945.png",
+  "flag-in-hole": "https://em-content.zobj.net/source/apple/419/flag-in-hole_26f3.png",
+  "ice-skate": "https://em-content.zobj.net/source/apple/419/ice-skate_26f8-fe0f.png",
+  "fishing-pole": "https://em-content.zobj.net/source/apple/419/fishing-pole_1f3a3.png",
+  "diving-mask": "https://em-content.zobj.net/source/apple/419/diving-mask_1f93f.png",
+  "running-shirt": "https://em-content.zobj.net/source/apple/419/running-shirt_1f3bd.png",
+  "skis": "https://em-content.zobj.net/source/apple/419/skis_1f3bf.png",
+  "sled": "https://em-content.zobj.net/source/apple/419/sled_1f6f7.png",
+  "curling-stone": "https://em-content.zobj.net/source/apple/419/curling-stone_1f94c.png",
+  "direct-hit": "https://em-content.zobj.net/source/apple/419/direct-hit_1f3af.png",
+  "yo-yo": "https://em-content.zobj.net/source/apple/419/yo-yo_1fa80.png",
+  "kite": "https://em-content.zobj.net/source/apple/419/kite_1fa81.png",
+  "pool-8-ball": "https://em-content.zobj.net/source/apple/419/pool-8-ball_1f3b1.png",
+  "crystal-ball": "https://em-content.zobj.net/source/apple/419/crystal-ball_1f52e.png",
+  "video-game": "https://em-content.zobj.net/source/apple/419/video-game_1f3ae.png",
+  "joystick": "https://em-content.zobj.net/source/apple/419/joystick_1f579-fe0f.png",
+  "slot-machine": "https://em-content.zobj.net/source/apple/419/slot-machine_1f3b0.png",
+  "puzzle-piece": "https://em-content.zobj.net/source/apple/419/puzzle-piece_1f9e9.png",
+  "pinata": "https://em-content.zobj.net/source/apple/419/pinata_1fa85.png",
+  "mirror-ball": "https://em-content.zobj.net/source/apple/419/mirror-ball_1faa9.png",
+  "nesting-dolls": "https://em-content.zobj.net/source/apple/419/nesting-dolls_1fa86.png",
+  "spade-suit": "https://em-content.zobj.net/source/apple/419/spade-suit_2660-fe0f.png",
+  "heart-suit": "https://em-content.zobj.net/source/apple/419/heart-suit_2665-fe0f.png",
+  "diamond-suit": "https://em-content.zobj.net/source/apple/419/diamond-suit_2666-fe0f.png",
+  "club-suit": "https://em-content.zobj.net/source/apple/419/club-suit_2663-fe0f.png",
+  "chess-pawn": "https://em-content.zobj.net/source/apple/419/chess-pawn_265f-fe0f.png",
+  "joker": "https://em-content.zobj.net/source/apple/419/joker_1f0cf.png",
+  "pistol": "https://em-content.zobj.net/source/apple/419/pistol_1f52b.png",
+  "magic-wand": "https://em-content.zobj.net/source/apple/419/magic-wand_1fa84.png",
+  "game-die": "https://em-content.zobj.net/source/apple/419/game-die_1f3b2.png",
+  "mahjong-red-dragon": "https://em-content.zobj.net/source/apple/419/mahjong-red-dragon_1f004.png",
+  "flower-playing-cards": "https://em-content.zobj.net/source/apple/419/flower-playing-cards_1f3b4.png",
+  "performing-arts": "https://em-content.zobj.net/source/apple/419/performing-arts_1f3ad.png",
+  "framed-picture": "https://em-content.zobj.net/source/apple/419/framed-picture_1f5bc-fe0f.png",
+  "artist-palette": "https://em-content.zobj.net/source/apple/419/artist-palette_1f3a8.png",
+  "globe-showing-europe-africa": "https://em-content.zobj.net/source/apple/419/globe-showing-europe-africa_1f30d.png",
+  "globe-showing-asia-australia": "https://em-content.zobj.net/source/apple/419/globe-showing-asia-australia_1f30f.png",
+  "map-of-japan": "https://em-content.zobj.net/source/apple/419/map-of-japan_1f5fe.png",
+  "compass": "https://em-content.zobj.net/source/apple/419/compass_1f9ed.png",
+  "snow-capped-mountain": "https://em-content.zobj.net/source/apple/419/snow-capped-mountain_1f3d4-fe0f.png",
+  "mountain": "https://em-content.zobj.net/source/apple/419/mountain_26f0-fe0f.png",
+  "volcano": "https://em-content.zobj.net/source/apple/419/volcano_1f30b.png",
+  "mount-fuji": "https://em-content.zobj.net/source/apple/419/mount-fuji_1f5fb.png",
+  "desert": "https://em-content.zobj.net/source/apple/419/desert_1f3dc-fe0f.png",
+  "desert-island": "https://em-content.zobj.net/source/apple/419/desert-island_1f3dd-fe0f.png",
+  "national-park": "https://em-content.zobj.net/source/apple/419/national-park_1f3de-fe0f.png",
+  "stadium": "https://em-content.zobj.net/source/apple/419/stadium_1f3df-fe0f.png",
+  "classical-building": "https://em-content.zobj.net/source/apple/419/classical-building_1f3db-fe0f.png",
+  "hut": "https://em-content.zobj.net/source/apple/419/hut_1f6d6.png",
+  "houses": "https://em-content.zobj.net/source/apple/419/houses_1f3d8-fe0f.png",
+  "derelict-house": "https://em-content.zobj.net/source/apple/419/derelict-house_1f3da-fe0f.png",
+  "house": "https://em-content.zobj.net/source/apple/419/house_1f3e0.png",
+  "house-with-garden": "https://em-content.zobj.net/source/apple/419/house-with-garden_1f3e1.png",
+  "japanese-post-office": "https://em-content.zobj.net/source/apple/419/japanese-post-office_1f3e3.png",
+  "hospital": "https://em-content.zobj.net/source/apple/419/hospital_1f3e5.png",
+  "globe-showing-americas": "https://em-content.zobj.net/source/apple/419/globe-showing-americas_1f30e.png",
+  "globe-with-meridians": "https://em-content.zobj.net/source/apple/419/globe-with-meridians_1f310.png",
+  "world-map": "https://em-content.zobj.net/source/apple/419/world-map_1f5fa-fe0f.png",
+  "camping": "https://em-content.zobj.net/source/apple/419/camping_1f3d5-fe0f.png",
+  "beach-with-umbrella": "https://em-content.zobj.net/source/apple/419/beach-with-umbrella_1f3d6-fe0f.png",
+  "building-construction": "https://em-content.zobj.net/source/apple/419/building-construction_1f3d7-fe0f.png",
+  "brick": "https://em-content.zobj.net/source/apple/419/brick_1f9f1.png",
+  "office-building": "https://em-content.zobj.net/source/apple/419/office-building_1f3e2.png",
+  "post-office": "https://em-content.zobj.net/source/apple/419/post-office_1f3e4.png",
+  "bank": "https://em-content.zobj.net/source/apple/419/bank_1f3e6.png",
+  "hotel": "https://em-content.zobj.net/source/apple/419/hotel_1f3e8.png",
+  "love-hotel": "https://em-content.zobj.net/source/apple/419/love-hotel_1f3e9.png",
+  "convenience-store": "https://em-content.zobj.net/source/apple/419/convenience-store_1f3ea.png",
+  "school": "https://em-content.zobj.net/source/apple/419/school_1f3eb.png",
+  "department-store": "https://em-content.zobj.net/source/apple/419/department-store_1f3ec.png",
+  "factory": "https://em-content.zobj.net/source/apple/419/factory_1f3ed.png",
+  "japanese-castle": "https://em-content.zobj.net/source/apple/419/japanese-castle_1f3ef.png",
+  "castle": "https://em-content.zobj.net/source/apple/419/castle_1f3f0.png",
+  "wedding": "https://em-content.zobj.net/source/apple/419/wedding_1f492.png",
+  "tokyo-tower": "https://em-content.zobj.net/source/apple/419/tokyo-tower_1f5fc.png",
+  "statue-of-liberty": "https://em-content.zobj.net/source/apple/419/statue-of-liberty_1f5fd.png",
+  "church": "https://em-content.zobj.net/source/apple/419/church_26ea.png",
+  "hindu-temple": "https://em-content.zobj.net/source/apple/419/hindu-temple_1f6d5.png",
+  "mosque": "https://em-content.zobj.net/source/apple/419/mosque_1f54c.png",
+  "synagogue": "https://em-content.zobj.net/source/apple/419/synagogue_1f54d.png",
+  "shinto-shrine": "https://em-content.zobj.net/source/apple/419/shinto-shrine_26e9-fe0f.png",
+  "kaaba": "https://em-content.zobj.net/source/apple/419/kaaba_1f54b.png",
+  "fountain": "https://em-content.zobj.net/source/apple/419/fountain_26f2.png",
+  "tent": "https://em-content.zobj.net/source/apple/419/tent_26fa.png",
+  "foggy": "https://em-content.zobj.net/source/apple/419/foggy_1f301.png",
+  "night-with-stars": "https://em-content.zobj.net/source/apple/419/night-with-stars_1f303.png",
+  "cityscape": "https://em-content.zobj.net/source/apple/419/cityscape_1f3d9-fe0f.png",
+  "sunrise-over-mountains": "https://em-content.zobj.net/source/apple/419/sunrise-over-mountains_1f304.png",
+  "sunrise": "https://em-content.zobj.net/source/apple/419/sunrise_1f305.png",
+  "cityscape-at-dusk": "https://em-content.zobj.net/source/apple/419/cityscape-at-dusk_1f306.png",
+  "sunset": "https://em-content.zobj.net/source/apple/419/sunset_1f307.png",
+  "bridge-at-night": "https://em-content.zobj.net/source/apple/419/bridge-at-night_1f309.png",
+  "hot-springs": "https://em-content.zobj.net/source/apple/419/hot-springs_2668-fe0f.png",
+  "carousel-horse": "https://em-content.zobj.net/source/apple/419/carousel-horse_1f3a0.png",
+  "playground-slide": "https://em-content.zobj.net/source/apple/419/playground-slide_1f6dd.png",
+  "ferris-wheel": "https://em-content.zobj.net/source/apple/419/ferris-wheel_1f3a1.png",
+  "roller-coaster": "https://em-content.zobj.net/source/apple/419/roller-coaster_1f3a2.png",
+  "barber-pole": "https://em-content.zobj.net/source/apple/419/barber-pole_1f488.png",
+  "circus-tent": "https://em-content.zobj.net/source/apple/419/circus-tent_1f3aa.png",
+  "locomotive": "https://em-content.zobj.net/source/apple/419/locomotive_1f682.png",
+  "railway-car": "https://em-content.zobj.net/source/apple/419/railway-car_1f683.png",
+  "high-speed-train": "https://em-content.zobj.net/source/apple/419/high-speed-train_1f684.png",
+  "bullet-train": "https://em-content.zobj.net/source/apple/419/bullet-train_1f685.png",
+  "train": "https://em-content.zobj.net/source/apple/419/train_1f686.png",
+  "metro": "https://em-content.zobj.net/source/apple/419/metro_1f687.png",
+  "light-rail": "https://em-content.zobj.net/source/apple/419/light-rail_1f688.png",
+  "station": "https://em-content.zobj.net/source/apple/419/station_1f689.png",
+  "tram": "https://em-content.zobj.net/source/apple/419/tram_1f68a.png",
+  "monorail": "https://em-content.zobj.net/source/apple/419/monorail_1f69d.png",
+  "mountain-railway": "https://em-content.zobj.net/source/apple/419/mountain-railway_1f69e.png",
+  "tram-car": "https://em-content.zobj.net/source/apple/419/tram-car_1f68b.png",
+  "bus": "https://em-content.zobj.net/source/apple/419/bus_1f68c.png",
+  "oncoming-bus": "https://em-content.zobj.net/source/apple/419/oncoming-bus_1f68d.png",
+  "trolleybus": "https://em-content.zobj.net/source/apple/419/trolleybus_1f68e.png",
+  "minibus": "https://em-content.zobj.net/source/apple/419/minibus_1f690.png",
+  "ambulance": "https://em-content.zobj.net/source/apple/419/ambulance_1f691.png",
+  "fire-engine": "https://em-content.zobj.net/source/apple/419/fire-engine_1f692.png",
+  "police-car": "https://em-content.zobj.net/source/apple/419/police-car_1f693.png",
+  "oncoming-police-car": "https://em-content.zobj.net/source/apple/419/oncoming-police-car_1f694.png",
+  "taxi": "https://em-content.zobj.net/source/apple/419/taxi_1f695.png",
+  "oncoming-taxi": "https://em-content.zobj.net/source/apple/419/oncoming-taxi_1f696.png",
+  "automobile": "https://em-content.zobj.net/source/apple/419/automobile_1f697.png",
+  "oncoming-automobile": "https://em-content.zobj.net/source/apple/419/oncoming-automobile_1f698.png",
+  "sport-utility-vehicle": "https://em-content.zobj.net/source/apple/419/sport-utility-vehicle_1f699.png",
+  "pickup-truck": "https://em-content.zobj.net/source/apple/419/pickup-truck_1f6fb.png",
+  "delivery-truck": "https://em-content.zobj.net/source/apple/419/delivery-truck_1f69a.png",
+  "articulated-lorry": "https://em-content.zobj.net/source/apple/419/articulated-lorry_1f69b.png",
+  "tractor": "https://em-content.zobj.net/source/apple/419/tractor_1f69c.png",
+  "racing-car": "https://em-content.zobj.net/source/apple/419/racing-car_1f3ce-fe0f.png",
+  "motorcycle": "https://em-content.zobj.net/source/apple/419/motorcycle_1f3cd-fe0f.png",
+  "motor-scooter": "https://em-content.zobj.net/source/apple/419/motor-scooter_1f6f5.png",
+  "manual-wheelchair": "https://em-content.zobj.net/source/apple/419/manual-wheelchair_1f9bd.png",
+  "motorized-wheelchair": "https://em-content.zobj.net/source/apple/419/motorized-wheelchair_1f9bc.png",
+  "auto-rickshaw": "https://em-content.zobj.net/source/apple/419/auto-rickshaw_1f6fa.png",
+  "bicycle": "https://em-content.zobj.net/source/apple/419/bicycle_1f6b2.png",
+  "kick-scooter": "https://em-content.zobj.net/source/apple/419/kick-scooter_1f6f4.png",
+  "skateboard": "https://em-content.zobj.net/source/apple/419/skateboard_1f6f9.png",
+  "roller-skate": "https://em-content.zobj.net/source/apple/419/roller-skate_1f6fc.png",
+  "bus-stop": "https://em-content.zobj.net/source/apple/419/bus-stop_1f68f.png",
+  "motorway": "https://em-content.zobj.net/source/apple/419/motorway_1f6e3-fe0f.png",
+  "railway-track": "https://em-content.zobj.net/source/apple/419/railway-track_1f6e4-fe0f.png",
+  "oil-drum": "https://em-content.zobj.net/source/apple/419/oil-drum_1f6e2-fe0f.png",
+  "fuel-pump": "https://em-content.zobj.net/source/apple/419/fuel-pump_26fd.png",
+  "wheel": "https://em-content.zobj.net/source/apple/419/wheel_1f6de.png",
+  "police-car-light": "https://em-content.zobj.net/source/apple/419/police-car-light_1f6a8.png",
+  "horizontal-traffic-light": "https://em-content.zobj.net/source/apple/419/horizontal-traffic-light_1f6a5.png",
+  "vertical-traffic-light": "https://em-content.zobj.net/source/apple/419/vertical-traffic-light_1f6a6.png",
+  "stop-sign": "https://em-content.zobj.net/source/apple/419/stop-sign_1f6d1.png",
+  "construction": "https://em-content.zobj.net/source/apple/419/construction_1f6a7.png",
+  "anchor": "https://em-content.zobj.net/source/apple/419/anchor_2693.png",
+  "ring-buoy": "https://em-content.zobj.net/source/apple/419/ring-buoy_1f6df.png",
+  "sailboat": "https://em-content.zobj.net/source/apple/419/sailboat_26f5.png",
+  "canoe": "https://em-content.zobj.net/source/apple/419/canoe_1f6f6.png",
+  "speedboat": "https://em-content.zobj.net/source/apple/419/speedboat_1f6a4.png",
+  "passenger-ship": "https://em-content.zobj.net/source/apple/419/passenger-ship_1f6f3-fe0f.png",
+  "ferry": "https://em-content.zobj.net/source/apple/419/ferry_26f4-fe0f.png",
+  "motor-boat": "https://em-content.zobj.net/source/apple/419/motor-boat_1f6e5-fe0f.png",
+  "ship": "https://em-content.zobj.net/source/apple/419/ship_1f6a2.png",
+  "airplane": "https://em-content.zobj.net/source/apple/419/airplane_2708-fe0f.png",
+  "small-airplane": "https://em-content.zobj.net/source/apple/419/small-airplane_1f6e9-fe0f.png",
+  "airplane-departure": "https://em-content.zobj.net/source/apple/419/airplane-departure_1f6eb.png",
+  "airplane-arrival": "https://em-content.zobj.net/source/apple/419/airplane-arrival_1f6ec.png",
+  "parachute": "https://em-content.zobj.net/source/apple/419/parachute_1fa82.png",
+  "seat": "https://em-content.zobj.net/source/apple/419/seat_1f4ba.png",
+  "helicopter": "https://em-content.zobj.net/source/apple/419/helicopter_1f681.png",
+  "suspension-railway": "https://em-content.zobj.net/source/apple/419/suspension-railway_1f69f.png",
+  "mountain-cableway": "https://em-content.zobj.net/source/apple/419/mountain-cableway_1f6a0.png",
+  "aerial-tramway": "https://em-content.zobj.net/source/apple/419/aerial-tramway_1f6a1.png",
+  "satellite": "https://em-content.zobj.net/source/apple/419/satellite_1f6f0-fe0f.png",
+  "rocket": "https://em-content.zobj.net/source/apple/419/rocket_1f680.png",
+  "flying-saucer": "https://em-content.zobj.net/source/apple/419/flying-saucer_1f6f8.png",
+  "moai": "https://em-content.zobj.net/source/apple/419/moai_1f5ff.png",
+  "bellhop-bell": "https://em-content.zobj.net/source/apple/419/bellhop-bell_1f6ce-fe0f.png",
+  "luggage": "https://em-content.zobj.net/source/apple/419/luggage_1f9f3.png",
+  "hourglass-done": "https://em-content.zobj.net/source/apple/419/hourglass-done_231b.png",
+  "hourglass-not-done": "https://em-content.zobj.net/source/apple/419/hourglass-not-done_23f3.png",
+  "watch": "https://em-content.zobj.net/source/apple/419/watch_231a.png",
+  "alarm-clock": "https://em-content.zobj.net/source/apple/419/alarm-clock_23f0.png",
+  "stopwatch": "https://em-content.zobj.net/source/apple/419/stopwatch_23f1-fe0f.png",
+  "timer-clock": "https://em-content.zobj.net/source/apple/419/timer-clock_23f2-fe0f.png",
+  "mantelpiece-clock": "https://em-content.zobj.net/source/apple/419/mantelpiece-clock_1f570-fe0f.png",
+  "twelve-oclock": "https://em-content.zobj.net/source/apple/419/twelve-oclock_1f55b.png",
+  "twelve-thirty": "https://em-content.zobj.net/source/apple/419/twelve-thirty_1f567.png",
+  "one-oclock": "https://em-content.zobj.net/source/apple/419/one-oclock_1f550.png",
+  "one-thirty": "https://em-content.zobj.net/source/apple/419/one-thirty_1f55c.png",
+  "two-oclocktime": "https://em-content.zobj.net/source/apple/419/two-oclocktime_1f551.png",
+  "two-thirty": "https://em-content.zobj.net/source/apple/419/two-thirty_1f55d.png",
+  "three-oclock": "https://em-content.zobj.net/source/apple/419/three-oclock_1f552.png",
+  "three-thirty": "https://em-content.zobj.net/source/apple/419/three-thirty_1f55e.png",
+  "four-oclock": "https://em-content.zobj.net/source/apple/419/four-oclock_1f553.png",
+  "four-thirty": "https://em-content.zobj.net/source/apple/419/four-thirty_1f55f.png",
+  "five-oclock": "https://em-content.zobj.net/source/apple/419/five-oclock_1f554.png",
+  "five-thirty": "https://em-content.zobj.net/source/apple/419/five-thirty_1f560.png",
+  "six-oclock": "https://em-content.zobj.net/source/apple/419/six-oclock_1f555.png",
+  "six-thirty": "https://em-content.zobj.net/source/apple/419/six-thirty_1f561.png",
+  "seven-oclock": "https://em-content.zobj.net/source/apple/419/seven-oclock_1f556.png",
+  "seven-thirty": "https://em-content.zobj.net/source/apple/419/seven-thirty_1f562.png",
+  "eight-oclock": "https://em-content.zobj.net/source/apple/419/eight-oclock_1f557.png",
+  "eight-thirty": "https://em-content.zobj.net/source/apple/419/eight-thirty_1f563.png",
+  "nine-oclock": "https://em-content.zobj.net/source/apple/419/nine-oclock_1f558.png",
+  "nine-thirty": "https://em-content.zobj.net/source/apple/419/nine-thirty_1f564.png",
+  "ten-oclock": "https://em-content.zobj.net/source/apple/419/ten-oclock_1f559.png",
+  "ten-thirty": "https://em-content.zobj.net/source/apple/419/ten-thirty_1f565.png",
+  "eleven-oclock": "https://em-content.zobj.net/source/apple/419/eleven-oclock_1f55a.png",
+  "eleven-thirty": "https://em-content.zobj.net/source/apple/419/eleven-thirty_1f566.png",
+  "thermometer": "https://em-content.zobj.net/source/apple/419/thermometer_1f321-fe0f.png",
+  "ribbon": "https://em-content.zobj.net/source/apple/419/ribbon_1f380.png",
+  "reminder-ribbon": "https://em-content.zobj.net/source/apple/419/reminder-ribbon_1f397-fe0f.png",
+  "teddy-bear": "https://em-content.zobj.net/source/apple/419/teddy-bear_1f9f8.png",
+  "thread": "https://em-content.zobj.net/source/apple/419/thread_1f9f5.png",
+  "sewing-needle": "https://em-content.zobj.net/source/apple/419/sewing-needle_1faa1.png",
+  "yarn": "https://em-content.zobj.net/source/apple/419/yarn_1f9f6.png",
+  "knot": "https://em-content.zobj.net/source/apple/419/knot_1faa2.png",
+  "glasses": "https://em-content.zobj.net/source/apple/419/glasses_1f453.png",
+  "sunglasses": "https://em-content.zobj.net/source/apple/419/sunglasses_1f576-fe0f.png",
+  "goggles": "https://em-content.zobj.net/source/apple/419/goggles_1f97d.png",
+  "lab-coat": "https://em-content.zobj.net/source/apple/419/lab-coat_1f97c.png",
+  "safety-vest": "https://em-content.zobj.net/source/apple/419/safety-vest_1f9ba.png",
+  "necktie": "https://em-content.zobj.net/source/apple/419/necktie_1f454.png",
+  "t-shirt": "https://em-content.zobj.net/source/apple/419/t-shirt_1f455.png",
+  "jeans": "https://em-content.zobj.net/source/apple/419/jeans_1f456.png",
+  "scarf": "https://em-content.zobj.net/source/apple/419/scarf_1f9e3.png",
+  "gloves": "https://em-content.zobj.net/source/apple/419/gloves_1f9e4.png",
+  "coat": "https://em-content.zobj.net/source/apple/419/coat_1f9e5.png",
+  "socks": "https://em-content.zobj.net/source/apple/419/socks_1f9e6.png",
+  "dress": "https://em-content.zobj.net/source/apple/419/dress_1f457.png",
+  "kimono": "https://em-content.zobj.net/source/apple/419/kimono_1f458.png",
+  "sari": "https://em-content.zobj.net/source/apple/419/sari_1f97b.png",
+  "one-piece-swimsuit": "https://em-content.zobj.net/source/apple/419/one-piece-swimsuit_1fa71.png",
+  "briefs": "https://em-content.zobj.net/source/apple/419/briefs_1fa72.png",
+  "shorts": "https://em-content.zobj.net/source/apple/419/shorts_1fa73.png",
+  "bikini": "https://em-content.zobj.net/source/apple/419/bikini_1f459.png",
+  "womans-clothes": "https://em-content.zobj.net/source/apple/419/womans-clothes_1f45a.png",
+  "folding-hand-fan": "https://em-content.zobj.net/source/apple/419/folding-hand-fan_1faad.png",
+  "purse": "https://em-content.zobj.net/source/apple/419/purse_1f45b.png",
+  "handbag": "https://em-content.zobj.net/source/apple/419/handbag_1f45c.png",
+  "clutch-bag": "https://em-content.zobj.net/source/apple/419/clutch-bag_1f45d.png",
+  "shopping-bags": "https://em-content.zobj.net/source/apple/419/shopping-bags_1f6cd-fe0f.png",
+  "backpack": "https://em-content.zobj.net/source/apple/419/backpack_1f392.png",
+  "thong-sandal": "https://em-content.zobj.net/source/apple/419/thong-sandal_1fa74.png",
+  "mans-shoe": "https://em-content.zobj.net/source/apple/419/mans-shoe_1f45e.png",
+  "running-shoe": "https://em-content.zobj.net/source/apple/419/running-shoe_1f45f.png",
+  "hiking-boot": "https://em-content.zobj.net/source/apple/419/hiking-boot_1f97e.png",
+  "flat-shoe": "https://em-content.zobj.net/source/apple/419/flat-shoe_1f97f.png",
+  "high-heeled-shoe": "https://em-content.zobj.net/source/apple/419/high-heeled-shoe_1f460.png",
+  "womans-sandal": "https://em-content.zobj.net/source/apple/419/womans-sandal_1f461.png",
+  "ballet-shoes": "https://em-content.zobj.net/source/apple/419/ballet-shoes_1fa70.png",
+  "womans-boot": "https://em-content.zobj.net/source/apple/419/womans-boot_1f462.png",
+  "hair-pick": "https://em-content.zobj.net/source/apple/419/hair-pick_1faae.png",
+  "crown": "https://em-content.zobj.net/source/apple/419/crown_1f451.png",
+  "womans-hat": "https://em-content.zobj.net/source/apple/419/womans-hat_1f452.png",
+  "top-hat": "https://em-content.zobj.net/source/apple/419/top-hat_1f3a9.png",
+  "graduation-cap": "https://em-content.zobj.net/source/apple/419/graduation-cap_1f393.png",
+  "billed-cap": "https://em-content.zobj.net/source/apple/419/billed-cap_1f9e2.png",
+  "military-helmet": "https://em-content.zobj.net/source/apple/419/military-helmet_1fa96.png",
+  "rescue-workers-helmet": "https://em-content.zobj.net/source/apple/419/rescue-workers-helmet_26d1-fe0f.png",
+  "prayer-beads": "https://em-content.zobj.net/source/apple/419/prayer-beads_1f4ff.png",
+  "lipstick": "https://em-content.zobj.net/source/apple/419/lipstick_1f484.png",
+  "ring": "https://em-content.zobj.net/source/apple/419/ring_1f48d.png",
+  "gem-stone": "https://em-content.zobj.net/source/apple/419/gem-stone_1f48e.png",
+  "muted-speaker": "https://em-content.zobj.net/source/apple/419/muted-speaker_1f507.png",
+  "speaker-low-volume": "https://em-content.zobj.net/source/apple/419/speaker-low-volume_1f508.png",
+  "speaker-medium-volume": "https://em-content.zobj.net/source/apple/419/speaker-medium-volume_1f509.png",
+  "speaker-high-volume": "https://em-content.zobj.net/source/apple/419/speaker-high-volume_1f50a.png",
+  "loudspeaker": "https://em-content.zobj.net/source/apple/419/loudspeaker_1f4e2.png",
+  "megaphone": "https://em-content.zobj.net/source/apple/419/megaphone_1f4e3.png",
+  "postal-horn": "https://em-content.zobj.net/source/apple/419/postal-horn_1f4ef.png",
+  "bell": "https://em-content.zobj.net/source/apple/419/bell_1f514.png",
+  "bell-with-slash": "https://em-content.zobj.net/source/apple/419/bell-with-slash_1f515.png",
+  "musical-score": "https://em-content.zobj.net/source/apple/419/musical-score_1f3bc.png",
+  "musical-note": "https://em-content.zobj.net/source/apple/419/musical-note_1f3b5.png",
+  "musical-notes": "https://em-content.zobj.net/source/apple/419/musical-notes_1f3b6.png",
+  "studio-microphone": "https://em-content.zobj.net/source/apple/419/studio-microphone_1f399-fe0f.png",
+  "level-slider": "https://em-content.zobj.net/source/apple/419/level-slider_1f39a-fe0f.png",
+  "control-knobs": "https://em-content.zobj.net/source/apple/419/control-knobs_1f39b-fe0f.png",
+  "microphone": "https://em-content.zobj.net/source/apple/419/microphone_1f3a4.png",
+  "headphone": "https://em-content.zobj.net/source/apple/419/headphone_1f3a7.png",
+  "radio": "https://em-content.zobj.net/source/apple/419/radio_1f4fb.png",
+  "saxophone": "https://em-content.zobj.net/source/apple/419/saxophone_1f3b7.png",
+  "accordion": "https://em-content.zobj.net/source/apple/419/accordion_1fa97.png",
+  "guitar": "https://em-content.zobj.net/source/apple/419/guitar_1f3b8.png",
+  "musical-keyboard": "https://em-content.zobj.net/source/apple/419/musical-keyboard_1f3b9.png",
+  "trumpet": "https://em-content.zobj.net/source/apple/419/trumpet_1f3ba.png",
+  "violin": "https://em-content.zobj.net/source/apple/419/violin_1f3bb.png",
+  "banjo": "https://em-content.zobj.net/source/apple/419/banjo_1fa95.png",
+  "drum": "https://em-content.zobj.net/source/apple/419/drum_1f941.png",
+  "long-drum": "https://em-content.zobj.net/source/apple/419/long-drum_1fa98.png",
+  "maracas": "https://em-content.zobj.net/source/apple/419/maracas_1fa87.png",
+  "flute": "https://em-content.zobj.net/source/apple/419/flute_1fa88.png",
+  "harp": "https://em-content.zobj.net/source/apple/419/harp_1fa89.png",
+  "mobile-phone": "https://em-content.zobj.net/source/apple/419/mobile-phone_1f4f1.png",
+  "mobile-phone-with-arrow": "https://em-content.zobj.net/source/apple/419/mobile-phone-with-arrow_1f4f2.png",
+  "telephone": "https://em-content.zobj.net/source/apple/419/telephone_260e-fe0f.png",
+  "telephone-receiver": "https://em-content.zobj.net/source/apple/419/telephone-receiver_1f4de.png",
+  "pager": "https://em-content.zobj.net/source/apple/419/pager_1f4df.png",
+  "fax-machine": "https://em-content.zobj.net/source/apple/419/fax-machine_1f4e0.png",
+  "battery": "https://em-content.zobj.net/source/apple/419/battery_1f50b.png",
+  "low-battery": "https://em-content.zobj.net/source/apple/419/low-battery_1faab.png",
+  "electric-plug": "https://em-content.zobj.net/source/apple/419/electric-plug_1f50c.png"
+}
+```
+
+`src/index.css`:
+
+```css
+@import "tailwindcss";
+
+:root {
+
+}
+
+body {
+    font-family: "Inter", sans-serif;
+    background-color: #171C24;
+    color: #293241;
+}
+```
+
+`src/layout/DashboardLayout.jsx`:
+
+```jsx
+import React, {useState} from 'react';
+import {Box} from '@mantine/core';
+import styles from './DashboardLayout.module.css';
+import {Sidebar} from "../components/Sidebar/Sidebar.jsx";
+import {Outlet} from "react-router";
+import {useUrlStore} from "../store/url.js";
+
+export default function DashboardLayout() {
+    const path = useUrlStore(state => state.path)
+    const truncateAfter = useUrlStore(state => state.truncateAfter);
+
+    return (
+        <Box className={styles.container}>
+            <Sidebar/>
+
+            <Box className={styles.mainContent}>
+                <div className={styles.breadcrumb}>
+                    {path.map((item, index) => (
+                        <React.Fragment key={item.id || 'root'}>
+                            <div
+                                onClick={() => truncateAfter(item.id)} // Click handler for navigation
+                                className={
+                                    index === path.length - 1
+                                        ? `${styles.item} ${styles.current}`
+                                        : styles.item
+                                }
+                            >
+                                {item.name}
+                            </div>
+
+                            {index < path.length - 1 && <div className={styles.separator}>/</div>}
+                        </React.Fragment>
+                    ))}
+                </div>
+
+                <Outlet/>
+            </Box>
+        </Box>
+    );
+}
+```
+
+`src/layout/DashboardLayout.module.css`:
+
+```css
+.container {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.mainContent {
+    flex: 1;
+    padding: 2rem;
+    overflow-y: auto;
+}
+
+.breadcrumb {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    width: 100%;
+    background-color: #293241;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    padding: 8px 16px;
+    font-size: 16px;
+    color: #E0FBFC;
+    gap: 4px;
+}
+
+.item {
+    color: #E0FBFC;
+    cursor: pointer;
+    transition: color 0.1s ease, border-color 0.1s ease;
+    font-weight: 500;
+    padding: 4px 6px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+}
+
+.item:hover {
+    color: #EE6C4D;
+    border-color: #EE6C4D;
+    background-color: rgba(238, 108, 77, 0.1);
+}
+
+.separator {
+    color: #98C1D9;
+    user-select: none;
+}
+
+.current {
+    color: #EE6C4D;
+    font-weight: 600;
+    cursor: default;
+}
+
+```
+
+`src/layout/RootLayout.jsx`:
+
+```jsx
+// src/layouts/RootLayout.jsx
+import React from "react";
+import { Outlet } from "react-router";
+import { AuthProvider } from "../context/AuthContext";
+
+export default function RootLayout() {
+    return (
+        <AuthProvider>
+            <Outlet />
+        </AuthProvider>
+    );
+}
+
+```
+
+`src/main.jsx`:
+
+```jsx
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { createBrowserRouter, RouterProvider } from "react-router";
+import { createTheme, MantineProvider } from "@mantine/core";
+import axios from "axios";
+import { EmojiProvider } from "react-apple-emojis";
+
+import RootLayout from "./layout/RootLayout.jsx";
+import DashboardLayout from "./layout/DashboardLayout.jsx";
+import ProtectedRoute from "./components/ProtectedRoute";
+import { AuthPage, PersonalPage, SharePage } from "./page/index.js";
+import { useUrlStore } from "./store/url.js";
+import emojiData from "./filtered.json";
+
+import "@mantine/core/styles.css";
+import '@mantine/spotlight/styles.css';
+import "./index.css";
+
+const theme = createTheme({
+    fontFamily: "Inter, sans-serif",
+});
+
+// Устанавливаем базовый URL для нашего API
+axios.defaults.baseURL = 'http://localhost:4000';
+
+// --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+// Модифицируем перехватчик запросов
+axios.interceptors.request.use(
+    config => {
+        const token = localStorage.getItem('jwt_token');
+
+        // Проверяем, является ли URL запроса внутренним для нашего API
+        // Запрос к MinIO будет иметь абсолютный URL, который не начинается с baseURL
+        const isInternalApi = config.url.startsWith(axios.defaults.baseURL) || !config.url.startsWith('http');
+
+        // Добавляем токен, только если это запрос к нашему API
+        if (token && isInternalApi) {
+            config.headers.Authorization = `Bearer ${token}`;
+        }
+
+        return config;
+    },
+    error => Promise.reject(error)
+);
+
+const root = document.getElementById("root");
+
+export const router = createBrowserRouter([
+    {
+        path: '/',
+        element: <RootLayout />,
+        children: [
+            { path: 'login', element: <AuthPage /> },
+            {
+                element: <ProtectedRoute />,
+                children: [
+                    {
+                        path: '/',
+                        element: <DashboardLayout />,
+                        children: [
+                            {
+                                index: true,
+                                element: <PersonalPage />,
+                                loader: () => {
+                                    useUrlStore.setState({ path: [{ id: null, name: 'Личный диск' }] });
+                                    return null;
+                                }
+                            },
+                            { path: 'share', element: <SharePage /> },
+                            { path: 'private-example', element: <div>privat</div> },
+                        ],
+                    },
+                ],
+            },
+        ],
+    },
+]);
+
+ReactDOM.createRoot(root).render(
+    <MantineProvider theme={theme}>
+        <EmojiProvider data={emojiData}>
+            <RouterProvider router={router} />
+        </EmojiProvider>
+    </MantineProvider>
+);
+```
+
+`src/page/auth/index.jsx`:
+
+```jsx
+// src/page/auth/index.jsx
+import React, { useState } from 'react';
+import {
+    Button,
+    Paper,
+    PasswordInput,
+    Text,
+    TextInput,
+    Title,
+    Alert,
+} from '@mantine/core';
+import classes from './index.module.css';
+import { useAuth } from '../../context/AuthContext';
+
+export default function AuthPage() {
+    const { login } = useAuth();
+
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+
+        if (!username || !password) {
+            setError('Пожалуйста, введите и логин, и пароль.');
+            return;
+        }
+
+        try {
+            await login(username, password);
+            // Если login успешен, navigate уже вызван внутри login()
+        } catch (err) {
+            setError('Неправильные логин или пароль.');
+        }
+    };
+
+    return (
+        <div className={classes.wrapper}>
+            <Paper className={classes.form} radius={0} padding="xl">
+                <Title order={2} className={classes.title}>
+                    Welcome back to ShareChain!
+                </Title>
+
+                {error && (
+                    <Alert color="red" mb="md">
+                        {error}
+                    </Alert>
+                )}
+
+                <form onSubmit={handleSubmit}>
+                    <TextInput
+                        label="Введите username"
+                        placeholder="admin"
+                        size="md"
+                        radius="md"
+                        value={username}
+                        onChange={(e) => setUsername(e.currentTarget.value)}
+                    />
+                    <PasswordInput
+                        label="Введите пароль"
+                        placeholder="Твой пароль"
+                        mt="md"
+                        size="md"
+                        radius="md"
+                        value={password}
+                        onChange={(e) => setPassword(e.currentTarget.value)}
+                    />
+                    <Button fullWidth mt="xl" size="md" radius="md" type="submit">
+                        Войти
+                    </Button>
+                </form>
+            </Paper>
+        </div>
+    );
+}
+
+```
+
+`src/page/auth/index.module.css`:
+
+```css
+/* src/page/auth/index.module.css */
+.wrapper {
+    min-height: 100vh;
+    background-size: cover;
+    background-image: url(https://images.unsplash.com/photo-1484242857719-4b9144542727?ixid=MnwxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8&auto=format&fit=crop&w=1280&q=80);
+}
+
+.form {
+    border-right: 1px solid var(--mantine-color-gray-3);
+    min-height: 100vh;
+    max-width: 450px;
+    padding: 80px 30px 30px;
+    border-radius: 0;
+}
+
+.title {
+    font-weight: 600;
+    text-align: center;
+    margin-top: var(--mantine-spacing-md);
+    margin-bottom: 50px;
+}
+
+```
+
+`src/page/index.js`:
+
+```js
+// src/page/index.js
+export { default as AuthPage } from './auth/index.jsx';
+export { default as PersonalPage } from './personal/index.jsx';
+export { default as SharePage } from './share/index.jsx';
+
+```
+
+`src/page/personal/index.jsx`:
+
+```jsx
+import React, {useRef} from 'react';
+import axios from 'axios';
+import {Dolphin} from "../../components/Dolphin/Dolphin.jsx";
+import {useUrlStore} from "../../store/url.js";
+import {Button, Group} from "@mantine/core";
+import {IconFolderPlus, IconUpload} from "@tabler/icons-react";
+import styles from './index.module.css'
+import {PreviewPanel} from "../../components/PreviewPanel/PreviewPanel.jsx";
+
+export default function PersonalPage() {
+    const path = useUrlStore((state) => state.path);
+    const triggerRefresh = useUrlStore((state) => state.triggerRefresh);
+    const fileInputRef = useRef(null);
+    const selectedItem = useUrlStore((state) => state.selectedItem);
+
+    const handleCreateFolder = async () => {
+        const folderName = prompt("Введите имя новой папки:");
+        if (!folderName) return;
+        const parentId = path.length > 0 ? path[path.length - 1].id : null;
+        try {
+            await axios.post('/api/personal/folders', {
+                name: folderName,
+                parent_id: parentId,
+            });
+            triggerRefresh();
+        } catch (error) {
+            console.error("Failed to create folder:", error);
+            alert("Не удалось создать папку.");
+        }
+    };
+
+    const handleUploadClick = () => {
+        fileInputRef.current.click();
+    };
+
+    const handleFileChange = async (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const parentId = path.length > 0 ? path[path.length - 1].id : null;
+
+        try {
+            // --- ШАГ 1: Запрос URL для загрузки ---
+            // ИСПРАВЛЕНО: URL изменен на /api/personal/files/upload-url
+            // folder_id теперь передается в теле запроса.
+            const presignResponse = await axios.post('/api/personal/files/upload-url', {
+                filename: file.name,
+                content_type: file.type || 'application/octet-stream',
+                size_bytes: file.size,
+                folder_id: parentId, // <-- ID папки в теле
+            });
+
+            const {upload_url, storage_key} = presignResponse.data;
+
+            // --- ШАГ 2: Загрузка файла в хранилище ---
+            await axios.put(upload_url, file, {
+                headers: {'Content-Type': file.type || 'application/octet-stream'},
+            });
+
+            // --- ШАГ 3: Регистрация файла в базе данных ---
+            // ИСПРАВЛЕНО: URL изменен на /api/personal/files
+            // folder_id теперь передается в теле запроса.
+            await axios.post('/api/personal/files', {
+                name: file.name,
+                storage_key: storage_key,
+                size_bytes: file.size,
+                folder_id: parentId, // <-- ID папки в теле
+            });
+
+            triggerRefresh();
+            alert("Файл успешно загружен!");
+        } catch (error) {
+            console.error("File upload failed:", error);
+            const errorMessage = error.response?.data?.message || error.message;
+            alert(`Ошибка при загрузке файла: ${errorMessage}`);
+        } finally {
+            if (fileInputRef.current) {
+                fileInputRef.current.value = null;
+            }
+        }
+    };
+
+    return (
+        <div className={styles.pageWrapper}>
+            <div className={styles.mainContent}>
+                <Group mb="md">
+                    <Button leftSection={<IconFolderPlus size={16}/>} onClick={handleCreateFolder}>
+                        Создать папку
+                    </Button>
+                    <Button variant="outline" leftSection={<IconUpload size={16}/>} onClick={handleUploadClick}>
+                        Загрузить файл
+                    </Button>
+                </Group>
+                <input
+                    type="file"
+                    ref={fileInputRef}
+                    style={{display: 'none'}}
+                    onChange={handleFileChange}
+                />
+                <Dolphin
+                    apiPrefix="/api/personal"
+                    space="personal"
+                />
+            </div>
+            {selectedItem && (
+                <div className={styles.sidebar}>
+                    <PreviewPanel />
+                </div>
+            )}
+
+        </div>
+    );
+}
+```
+
+`src/page/personal/index.module.css`:
+
+```css
+.pageWrapper {
+    display: flex;
+    gap: var(--mantine-spacing-md);
+    height: 100%;
+}
+
+.mainContent {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.sidebar {
+    width: 300px;
+    flex-shrink: 0;
+    transition: width 0.2s ease-in-out;
+}
+```
+
+`src/page/share/index.jsx`:
+
+```jsx
+import React from 'react';
+import { Dolphin } from '../../components/Dolphin/Dolphin';
+import styles from './index.module.css';
+
+// Страница "Общий диск"
+export function SharePage() {
+    return (
+        <div className={styles.wrapper}>
+            <Dolphin
+                apiPrefix="/api/common"
+                space="common"
+            />
+        </div>
+    );
+}
+```
+
+`src/page/share/index.module.css`:
+
+```css
+.wrapper {
+    padding: 1rem;
+    height: 100%;
+    box-sizing: border-box;
+    overflow-y: auto;
+}
+```
+
+`src/postcss.config.cjs`:
+
+```cjs
+module.exports = {
+    plugins: {
+        'postcss-preset-mantine': {},
+        'postcss-simple-vars': {
+            variables: {
+                'mantine-breakpoint-xs': '36em',
+                'mantine-breakpoint-sm': '48em',
+                'mantine-breakpoint-md': '62em',
+                'mantine-breakpoint-lg': '75em',
+                'mantine-breakpoint-xl': '88em',
+            },
+        },
+    },
+};
+```
+
+`src/store/url.js`:
+
+```js
+import {create} from 'zustand'
+
+const useUrlStore = create((set) => ({
+    path: [],
+    version: 0,
+    selectedItem: null, // <-- НОВОЕ: для хранения выбранного файла/папки
+
+    triggerRefresh: () => set((state) => ({ version: state.version + 1 })),
+
+    // --- НОВЫЕ МЕТОДЫ ---
+    setSelectedItem: (item) => set({ selectedItem: item }),
+    clearSelectedItem: () => set({ selectedItem: null }),
+
+    enterPage: (page) => set((state) => ({
+        path: [...state.path, page],
+    })),
+    backPage: () => set((state) => ({
+        path:
+            state.path.length > 1
+                ? state.path.slice(0, -1)
+                : state.path,
+    })),
+    clear: () => set(() => ({
+        path: [],
+        selectedItem: null // Сбрасываем выбор при полной очистке
+    })),
+    truncateAfter: (id) => set((state) => {
+        const idx = state.path.findIndex((p) => p.id === id)
+        return idx !== -1
+            ? {path: state.path.slice(0, idx + 1)}
+            : {}
+    }),
+}))
+
+export {useUrlStore}
+```

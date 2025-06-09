@@ -33,7 +33,7 @@ type FolderWhitelist struct {
 // File — запись из таблицы files
 type File struct {
 	ID         int       `db:"id"`
-	FolderID   int       `db:"folder_id"`
+	FolderID   *int      `db:"folder_id"` // Nullable for root files
 	Name       string    `db:"name"`
 	StorageKey string    `db:"storage_key"`
 	SizeBytes  int64     `db:"size_bytes"`

@@ -1,28 +1,16 @@
 import {create} from 'zustand'
 
 const useUrlStore = create((set) => ({
-    path: [
-        {
-            id: 1,
-            name: "Отчеты"
-        },
-        {
-            id: 2,
-            name: "Папка"
-        },
-        {
-            id: 3,
-            name: "Самара 2012"
-        },
-        {
-            id: 4,
-            name: "Планы"
-        },
-        {
-            id: 5,
-            name: "Эщкерее"
-        },
-    ],
+    path: [],
+    version: 0,
+    selectedItem: null, // <-- НОВОЕ: для хранения выбранного файла/папки
+
+    triggerRefresh: () => set((state) => ({ version: state.version + 1 })),
+
+    // --- НОВЫЕ МЕТОДЫ ---
+    setSelectedItem: (item) => set({ selectedItem: item }),
+    clearSelectedItem: () => set({ selectedItem: null }),
+
     enterPage: (page) => set((state) => ({
         path: [...state.path, page],
     })),
@@ -33,14 +21,15 @@ const useUrlStore = create((set) => ({
                 : state.path,
     })),
     clear: () => set(() => ({
-        path: []
+        path: [],
+        selectedItem: null // Сбрасываем выбор при полной очистке
     })),
     truncateAfter: (id) => set((state) => {
-            const idx = state.path.findIndex((p) => p.id === id)
-            return idx !== -1
-                ? {path: state.path.slice(0, idx + 1)}
-                : {}
-        }),
+        const idx = state.path.findIndex((p) => p.id === id)
+        return idx !== -1
+            ? {path: state.path.slice(0, idx + 1)}
+            : {}
+    }),
 }))
 
 export {useUrlStore}
