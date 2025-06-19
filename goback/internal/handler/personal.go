@@ -2,12 +2,12 @@ package handler
 
 import (
 	"encoding/json"
-	"goback/internal/model"
 	"log"
 	"net/http"
 	"strconv"
 
 	"goback/internal/service"
+	"goback/internal/dto"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -48,7 +48,17 @@ func (h *PersonalHandler) CreateFolderHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(f)
+	folderResp := dto.FolderResponse{
+		ID:        f.ID,
+		Name:      f.Name,
+		ParentID:  f.ParentID,
+		IsCommon:  f.IsCommon,
+		OwnerID:   f.OwnerID,
+		CreatedBy: f.CreatedBy,
+		CreatedAt: f.CreatedAt,
+		CanWrite:  true, // владелец всегда может писать в свою личную папку
+	}
+	json.NewEncoder(w).Encode(folderResp)
 }
 
 // ListFoldersHandler — GET /api/personal/folders?parent_id={id}
@@ -72,12 +82,38 @@ func (h *PersonalHandler) ListFoldersHandler(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "failed to list files", http.StatusInternalServerError)
 		return
 	}
+	var folderResponses []dto.FolderResponse
+	for _, f := range folders {
+		folderResponses = append(folderResponses, dto.FolderResponse{
+			ID:        f.ID,
+			Name:      f.Name,
+			ParentID:  f.ParentID,
+			IsCommon:  f.IsCommon,
+			OwnerID:   f.OwnerID,
+			CreatedBy: f.CreatedBy,
+			CreatedAt: f.CreatedAt,
+			CanWrite:  true, // владелец всегда может писать в свою личную папку
+		})
+	}
+	var fileResponses []dto.FileResponse
+	for _, file := range files {
+		fileResponses = append(fileResponses, dto.FileResponse{
+			ID:         file.ID,
+			FolderID:   *file.FolderID,
+			Name:       file.Name,
+			StorageKey: file.StorageKey,
+			SizeBytes:  file.SizeBytes,
+			OwnerID:    file.OwnerID,
+			CreatedAt:  file.CreatedAt,
+			UpdatedAt:  file.UpdatedAt,
+		})
+	}
 	resp := struct {
-		Folders []model.Folder `json:"folders"`
-		Files   []model.File   `json:"files"`
+		Folders []dto.FolderResponse `json:"folders"`
+		Files   []dto.FileResponse   `json:"files"`
 	}{
-		Folders: folders,
-		Files:   files,
+		Folders: folderResponses,
+		Files:   fileResponses,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -92,7 +128,17 @@ func (h *PersonalHandler) GetFolderHandler(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	json.NewEncoder(w).Encode(folder)
+	folderResp := dto.FolderResponse{
+		ID:        folder.ID,
+		Name:      folder.Name,
+		ParentID:  folder.ParentID,
+		IsCommon:  folder.IsCommon,
+		OwnerID:   folder.OwnerID,
+		CreatedBy: folder.CreatedBy,
+		CreatedAt: folder.CreatedAt,
+		CanWrite:  true,
+	}
+	json.NewEncoder(w).Encode(folderResp)
 }
 
 // UpdateFolderHandler — PUT /api/personal/folders/{id}

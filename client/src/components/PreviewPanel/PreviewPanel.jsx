@@ -149,7 +149,13 @@ export function PreviewPanel() {
                 )}
 
                 <Text size="sm" c="dimmed" mt="md">Дата создания</Text>
-                <Text Fw={500}>{new Date(selectedItem.CreatedAt).toLocaleString()}</Text>
+                <Text Fw={500}>{
+                    (() => {
+                        const raw = selectedItem.CreatedAt ?? selectedItem.createdAt ?? selectedItem.created_at;
+                        const date = raw ? new Date(raw) : null;
+                        return date && !isNaN(date) ? date.toLocaleString() : '—';
+                    })()
+                }</Text>
             </div>
         </Paper>
     );

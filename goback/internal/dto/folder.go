@@ -11,6 +11,7 @@ type FolderResponse struct {
 	OwnerID   *int      `json:"owner_id,omitempty"`  // null для общих папок
 	CreatedBy int       `json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
+	CanWrite  bool      `json:"can_write"` // Новое поле: можно ли писать в папку
 }
 
 // FolderCreateRequest — структура для создания новой папки

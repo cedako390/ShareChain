@@ -82,7 +82,12 @@ func (s *fileService) GenerateDownloadURL(ctx context.Context, fileID int, userI
 		return "", errors.New("forbidden")
 	}
 
-	return "s.minio.PresignedGetObject(ctx, s.bucketName, f.StorageKey, 15*time.Minute, nil)", nil
+	url, err := s.minio.PresignedGetObject(ctx, s.bucketName, f.StorageKey, 15*time.Minute, nil)
+	if err != nil {
+		log.Printf("WARN: could not generate presigned get object: %v", err)
+		return "", err
+	}
+	return url.String(), nil
 }
 
 func (s *fileService) ListFiles(ownerID int, parentID *int) ([]model.File, error) {
@@ -108,7 +113,20 @@ func (s *fileService) RenameOrMoveFile(fileID int, newName string, newFolderID, 
 	if f.OwnerID != ownerID {
 		return errors.New("no access")
 	}
-	return s.repo.UpdateMetadata(fileID, newName, newFolderID)
+	// Если имя не пустое и folderID не меняется — обновляем только имя
+	if newName != "" && (newFolderID == 0 || newFolderID == *f.FolderID) {
+		return s.repo.UpdateMetadata(fileID, newName, *f.FolderID)
+	}
+	// Если имя пустое, но меняется папка
+	if newName == "" && newFolderID != 0 && (f.FolderID == nil || newFolderID != *f.FolderID) {
+		return s.repo.UpdateMetadata(fileID, f.Name, newFolderID)
+	}
+	// Если меняется и имя, и папка
+	if newName != "" && newFolderID != 0 && (f.FolderID == nil || newFolderID != *f.FolderID) {
+		return s.repo.UpdateMetadata(fileID, newName, newFolderID)
+	}
+	// Если ничего не меняется
+	return nil
 }
 
 func (s *fileService) DeleteFile(fileID int, userID int) error {

@@ -66,7 +66,14 @@ export const router = createBrowserRouter([
                                     return null;
                                 }
                             },
-                            { path: 'share', element: <SharePage /> },
+                            { 
+                                path: 'share', 
+                                element: <SharePage />,
+                                loader: () => {
+                                    useUrlStore.setState({ path: [{ id: null, name: 'Общий диск' }] });
+                                    return null;
+                                }
+                             },
                             { path: 'private-example', element: <div>privat</div> },
                         ],
                     },

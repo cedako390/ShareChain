@@ -7,6 +7,7 @@ import (
 
 	_ "github.com/lib/pq"
 
+	"github.com/joho/godotenv"
 	"goback/internal/config"
 	"goback/internal/factory"
 	"goback/internal/handler"
@@ -16,6 +17,12 @@ import (
 )
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+	log.Println("ЗАПУСК")
+
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		log.Fatalf("cannot load config: %v", err)
