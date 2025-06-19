@@ -290,7 +290,7 @@ func (h *CommonHandler) GenerateUploadURLHandler(w http.ResponseWriter, r *http.
 		return
 	}
 
-	uploadURL, key, err := h.fileSvc.GenerateUploadURL(r.Context(), &folderID, req.Filename, req.ContentType, req.SizeBytes, user.ID)
+	uploadURL, key, err := h.fileSvc.GenerateUploadURL(r.Context(), &folderID, req.Filename, req.ContentType, req.SizeBytes, 0)
 	if err != nil {
 		http.Error(w, "Cannot generate upload URL", http.StatusInternalServerError)
 		return
@@ -366,7 +366,7 @@ func (h *CommonHandler) DeleteFileHandler(w http.ResponseWriter, r *http.Request
 	fileID, _ := strconv.Atoi(chi.URLParam(r, "id"))
 
 	// Для удаления нужно проверить права на папку, в которой лежит файл
-	file, err := h.fileSvc.GetFileMetadata(fileID, 0) // ownerID не важен
+	file, err := h.fileSvc.GetFileMetadata(fileID, 0, true)
 	if err != nil {
 		http.Error(w, "File not found", http.StatusNotFound)
 		return
@@ -403,7 +403,7 @@ func (h *CommonHandler) UpdateFileHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	file, err := h.fileSvc.GetFileMetadata(fileID, 0)
+	file, err := h.fileSvc.GetFileMetadata(fileID, 0, true)
 	if err != nil {
 		http.Error(w, "File not found", http.StatusNotFound)
 		return
@@ -415,7 +415,7 @@ func (h *CommonHandler) UpdateFileHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 	// ownerID не важен, права проверены
-	if err := h.fileSvc.RenameOrMoveFile(fileID, req.Name, *file.FolderID, 0); err != nil {
+	if err := h.fileSvc.RenameOrMoveFile(fileID, req.Name, *file.FolderID, 0, true); err != nil {
 		http.Error(w, "Cannot rename file", http.StatusBadRequest)
 		return
 	}

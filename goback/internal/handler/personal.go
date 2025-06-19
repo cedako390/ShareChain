@@ -260,7 +260,7 @@ func (h *PersonalHandler) GenerateDownloadURLHandler(w http.ResponseWriter, r *h
 func (h *PersonalHandler) GetFileMetadataHandler(w http.ResponseWriter, r *http.Request) {
 	ownerID := GetUserIDFromContext(r.Context())
 	fileID, _ := strconv.Atoi(chi.URLParam(r, "id"))
-	f, err := h.fileSvc.GetFileMetadata(fileID, ownerID)
+	f, err := h.fileSvc.GetFileMetadata(fileID, ownerID, false)
 	if err != nil {
 		http.Error(w, "not found or no access", http.StatusNotFound)
 		return
@@ -281,13 +281,13 @@ func (h *PersonalHandler) UpdateFileHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if body.Name != nil {
-		if err := h.fileSvc.RenameOrMoveFile(fileID, *body.Name, 0, ownerID); err != nil {
+		if err := h.fileSvc.RenameOrMoveFile(fileID, *body.Name, 0, ownerID, false); err != nil {
 			http.Error(w, "cannot rename", http.StatusBadRequest)
 			return
 		}
 	}
 	if body.FolderID != nil {
-		if err := h.fileSvc.RenameOrMoveFile(fileID, "", *body.FolderID, ownerID); err != nil {
+		if err := h.fileSvc.RenameOrMoveFile(fileID, "", *body.FolderID, ownerID, false); err != nil {
 			http.Error(w, "cannot move", http.StatusBadRequest)
 			return
 		}

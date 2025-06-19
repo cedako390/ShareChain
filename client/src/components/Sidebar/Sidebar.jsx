@@ -5,7 +5,8 @@ import {
     IconDeviceGamepad3,
     IconLogout,
     IconSearch,
-    IconSmartHome
+    IconSmartHome,
+    IconPin
 } from '@tabler/icons-react';
 import { Badge, UnstyledButton } from '@mantine/core';
 import classes from './Sidebar.module.css';
@@ -16,19 +17,12 @@ import { useAuth } from "../../context/AuthContext.jsx";
 import {Emoji} from "react-apple-emojis";
 import {EmojiPicker} from "../EmojiPicker/EmojiPicker.jsx";
 import {useNavigate} from "react-router";
+import { useUrlStore } from '../../store/url.js';
 
 // Основные ссылки
 const links = [
     { icon: IconSmartHome, label: 'Личный диск', url: '/' },
     { icon: IconCategory, label: 'Общий диск',  url: '/share' },
-];
-
-// Закреплённые папки (переименовали из `collections`)
-const pinnedFolders = [
-    { icon: IconSmartHome, label: 'Sales' },
-    { icon: IconSmartHome, label: 'Marketing' },
-    { icon: IconSmartHome, label: 'Finance' },
-    { icon: IconSmartHome, label: 'HR' },
 ];
 
 const actions = [
@@ -58,6 +52,25 @@ const actions = [
 export function Sidebar() {
     const { logout } = useAuth();
     const navigate = useNavigate();
+    const [pinnedFolders, setPinnedFolders] = React.useState([]);
+
+    // Чтение закреплённых папок из localStorage
+    React.useEffect(() => {
+        const updatePinned = () => {
+            const pinned = JSON.parse(localStorage.getItem('pinnedFolders') || '[]');
+            setPinnedFolders(pinned);
+        };
+        updatePinned();
+        window.addEventListener('pinnedFoldersChanged', updatePinned);
+        return () => window.removeEventListener('pinnedFoldersChanged', updatePinned);
+    }, []);
+
+    // Переход по закреплённой папке
+    const handlePinnedClick = (folder) => {
+        // Обновляем path в zustand напрямую через useUrlStore.setState
+        useUrlStore.setState({ path: [{ id: folder.id, name: folder.name, can_write: true }] });
+        // useUrlStore.setState({ selectedItem: null }); // если нужно сбрасывать выделение
+    };
 
     // Рендерим основные ссылки
     const mainLinks = links.map((link) => (
@@ -106,11 +119,14 @@ export function Sidebar() {
             <div className={classes.section}>
                 <div className={classes.sectionTitle}>Закреплённые папки</div>
                 <div className={classes.pinnedList}>
+                    {pinnedFolders.length === 0 && (
+                        <div style={{ color: '#888', fontSize: 13, padding: '4px 8px' }}>Нет закреплённых папок</div>
+                    )}
                     {pinnedFolders.map((folder) => (
-                        <UnstyledButton key={folder.label} className={classes.pinnedItem}>
+                        <UnstyledButton key={folder.id + folder.apiPrefix} className={classes.pinnedItem} onClick={() => handlePinnedClick(folder)}>
                             <div className={classes.pinnedInner}>
-                                <Emoji name={"laptop"} width={18}/>
-                                <span className={classes.pinnedLabel}>{folder.label}</span>
+                                <IconPin size={18} className={classes.pinnedIcon}/>
+                                <span className={classes.pinnedLabel}>{folder.name}</span>
                             </div>
                         </UnstyledButton>
                     ))}

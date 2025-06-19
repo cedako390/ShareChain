@@ -7,7 +7,9 @@ import {
     IconPencil,
     IconTrash,
     IconX,
-    IconCheck
+    IconCheck,
+    IconPin,
+    IconPinFilled
 } from '@tabler/icons-react';
 import {
     Paper,
@@ -35,8 +37,13 @@ export function PreviewPanel() {
     const clearSelectedItem = useUrlStore((state) => state.clearSelectedItem);
     const triggerRefresh = useUrlStore((state) => state.triggerRefresh);
 
+    // ВАЖНО: объявляем isFile и apiPrefix сразу после selectedItem
+    const isFile = selectedItem && 'StorageKey' in selectedItem;
+    const apiPrefix = selectedItem && selectedItem.apiPrefix;
+
     const [isRenaming, setIsRenaming] = useState(false);
     const [newName, setNewName] = useState('');
+    const [isPinned, setIsPinned] = useState(false);
 
     // Сбрасываем состояние при смене выбранного элемента
     useEffect(() => {
@@ -46,6 +53,16 @@ export function PreviewPanel() {
         setIsRenaming(false);
     }, [selectedItem]);
 
+    // Проверка, закреплена ли папка
+    useEffect(() => {
+        if (!selectedItem || isFile) {
+            setIsPinned(false);
+            return;
+        }
+        const pinned = JSON.parse(localStorage.getItem('pinnedFolders') || '[]');
+        setIsPinned(pinned.some(f => f.id === selectedItem.ID && f.apiPrefix === apiPrefix));
+    }, [selectedItem, isFile, apiPrefix]);
+
     if (!selectedItem) {
         return (
             <Paper withBorder className={styles.wrapper} style={{ justifyContent: 'center', alignItems: 'center' }}>
@@ -54,9 +71,7 @@ export function PreviewPanel() {
         );
     }
 
-    const isFile = 'StorageKey' in selectedItem;
     const itemType = isFile ? 'files' : 'folders';
-    const apiPrefix = selectedItem.apiPrefix;
     const canWrite = Boolean(apiPrefix);
 
     const handleRename = async () => {
@@ -96,13 +111,47 @@ export function PreviewPanel() {
         }
     };
 
+    // Функция закрепления/открепления
+    const handlePin = () => {
+        if (!selectedItem || isFile) return;
+        const pinned = JSON.parse(localStorage.getItem('pinnedFolders') || '[]');
+        if (isPinned) {
+            const updated = pinned.filter(f => !(f.id === selectedItem.ID && f.apiPrefix === apiPrefix));
+            localStorage.setItem('pinnedFolders', JSON.stringify(updated));
+            setIsPinned(false);
+        } else {
+            const folderData = {
+                id: selectedItem.ID,
+                name: selectedItem.Name,
+                apiPrefix,
+                space: apiPrefix?.includes('common') ? 'common' : 'personal',
+            };
+            localStorage.setItem('pinnedFolders', JSON.stringify([...pinned, folderData]));
+            setIsPinned(true);
+        }
+        // Триггерим событие для обновления Sidebar
+        window.dispatchEvent(new Event('pinnedFoldersChanged'));
+    };
+
     return (
         <Paper withBorder className={styles.wrapper}>
             <div className={styles.header}>
                 <Title order={4}>Свойства</Title>
                 <CloseButton onClick={clearSelectedItem} title="Закрыть панель" />
+                {/* Кнопка закрепления только для папок */}
+                {!isFile && (
+                    <ActionIcon
+                        variant={isPinned ? 'filled' : 'default'}
+                        color={isPinned ? 'yellow' : 'gray'}
+                        onClick={handlePin}
+                        title={isPinned ? 'Открепить папку' : 'Закрепить папку'}
+                        style={{ marginLeft: 8 }}
+                    >
+                        {isPinned ? <IconPinFilled size={20}/> : <IconPin size={20}/>} 
+                    </ActionIcon>
+                )}
             </div>
-
+            
             <div className={styles.iconWrapper}>
                 {isFile ? <IconFile size={48} /> : <IconFolder size={48} />}
             </div>

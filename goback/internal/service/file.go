@@ -19,8 +19,8 @@ type FileService interface {
 	RegisterUploadedFile(folderID *int, name, storageKey string, size int64, ownerID int) (*model.File, error)
 	GenerateDownloadURL(ctx context.Context, fileID, ownerID int) (string, error)
 	ListFiles(ownerID int, parentID *int) ([]model.File, error)
-	GetFileMetadata(fileID, ownerID int) (*model.File, error)
-	RenameOrMoveFile(fileID int, newName string, newFolderID, ownerID int) error
+	GetFileMetadata(fileID int, userID int, isCommon bool) (*model.File, error)
+	RenameOrMoveFile(fileID int, newName string, newFolderID, ownerID int, isCommon bool) error
 	DeleteFile(fileID, ownerID int) error
 
 	ListCommonFiles(parentID *int) ([]model.File, error)
@@ -41,14 +41,22 @@ func (s *fileService) ListCommonFiles(parentID *int) ([]model.File, error) {
 }
 
 func (s *fileService) GenerateUploadURL(ctx context.Context, folderID *int, filename, contentType string, size int64, ownerID int) (string, string, error) {
-	var folderIDPath string
-	if folderID != nil {
-		folderIDPath = fmt.Sprintf("%d", *folderID)
+	var key string
+	if ownerID == 0 {
+		if folderID != nil {
+			key = fmt.Sprintf("common/%d/%d_%s", *folderID, time.Now().UnixNano(), filename)
+		} else {
+			key = fmt.Sprintf("common/root/%d_%s", time.Now().UnixNano(), filename)
+		}
 	} else {
-		folderIDPath = "root"
+		var folderIDPath string
+		if folderID != nil {
+			folderIDPath = fmt.Sprintf("%d", *folderID)
+		} else {
+			folderIDPath = "root"
+		}
+		key = fmt.Sprintf("personal/%d/%s/%d_%s", ownerID, folderIDPath, time.Now().UnixNano(), filename)
 	}
-
-	key := fmt.Sprintf("personal/%d/%s/%d_%s", ownerID, folderIDPath, time.Now().UnixNano(), filename)
 	reqParams := make(url.Values)
 	reqParams.Set("Content-Type", contentType)
 	uploadURL, err := s.minio.PresignedPutObject(ctx, s.bucketName, key, time.Minute*15)
@@ -94,23 +102,23 @@ func (s *fileService) ListFiles(ownerID int, parentID *int) ([]model.File, error
 	return s.repo.ListByOwnerAndParent(ownerID, parentID)
 }
 
-func (s *fileService) GetFileMetadata(fileID int, userID int) (*model.File, error) {
+func (s *fileService) GetFileMetadata(fileID int, userID int, isCommon bool) (*model.File, error) {
 	f, err := s.repo.GetByID(fileID)
 	if err != nil {
 		return nil, err
 	}
-	if f.OwnerID != 0 && f.OwnerID != userID {
+	if !isCommon && f.OwnerID != 0 && f.OwnerID != userID {
 		return nil, errors.New("forbidden")
 	}
 	return f, nil
 }
 
-func (s *fileService) RenameOrMoveFile(fileID int, newName string, newFolderID, ownerID int) error {
+func (s *fileService) RenameOrMoveFile(fileID int, newName string, newFolderID, ownerID int, isCommon bool) error {
 	f, err := s.repo.GetByID(fileID)
 	if err != nil {
 		return err
 	}
-	if f.OwnerID != ownerID {
+	if !isCommon && f.OwnerID != 0 && f.OwnerID != ownerID {
 		return errors.New("no access")
 	}
 	// Если имя не пустое и folderID не меняется — обновляем только имя
